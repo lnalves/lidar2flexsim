@@ -87,6 +87,47 @@ def test_prediction_uses_checkpoint_preprocessing_contract() -> None:
     assert len(debug_result["diagnostics"]["selected_indices"]) == 4
 
 
+def test_inference_uses_model_calibration_when_no_override_is_given() -> None:
+    torch = pytest.importorskip("torch")
+    from ml.inference import inferir_scan
+
+    class BoxModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.config = PointNet2Config(
+                input_points=4,
+                sa1_points=2,
+                sa2_points=1,
+                neighbors=2,
+                hidden_channels=8,
+                calibration={"min_points": 5},
+            )
+
+        def forward(self, points: object) -> object:
+            logits = torch.zeros((points.shape[0], points.shape[1], self.config.num_classes))
+            logits[..., 1] = 10.0
+            return logits
+
+    points = np.asarray([
+        [0.0, 0.0, 0.0, 0.0],
+        [0.1, 0.0, 0.0, 0.0],
+        [0.0, 0.1, 0.0, 0.0],
+        [0.1, 0.1, 0.1, 0.0],
+    ], dtype=np.float32)
+
+    result = inferir_scan(
+        points,
+        model=BoxModel(),
+        num_points=4,
+        cluster_eps=0.5,
+        min_cluster_points=1,
+    )
+
+    assert result["predictions"] == []
+    assert result["diagnostics"]["calibration"]["removed"]["points"] == 1
+    assert result["diagnostics"]["calibration"]["calibration"]["min_points"] == 5
+
+
 def test_checkpoint_loader_does_not_execute_arbitrary_pickle(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     from ml.checkpoints import load_checkpoint

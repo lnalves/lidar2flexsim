@@ -277,6 +277,7 @@ def predict_points(
         "labels": labels.cpu().numpy().astype(np.int64),
         "confidence": confidence.cpu().numpy().astype(np.float32),
         "class_names": model_config.class_names,
+        "model_calibration": dict(model_config.calibration),
         "diagnostics": diagnostics,
     }
 
@@ -381,7 +382,7 @@ def inferir_scan(
     clusters = [item[1] for item in records]
     configured_calibration = calibration
     if configured_calibration is None:
-        configured_calibration = getattr(model_config, "calibration", None)
+        configured_calibration = result["model_calibration"]
     predictions, clusters, calibration_diagnostics = calibrate_predictions(
         predictions, clusters, configured_calibration
     )

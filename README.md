@@ -146,6 +146,26 @@ Cada execução cria uma pasta isolada com `config.json`, `metadata.json`,
 `history.jsonl`, `checkpoints/last.pt`, `checkpoints/best.pt` e checkpoints por
 época. Para retomar uma execução interrompida:
 
+Para um experimento rápido, não é necessário usar o dataset inteiro:
+
+```bash
+python -m ml.cli train \
+  --dataset dados/warehouse \
+  --config ml/configs/pointnet2_seg.yaml \
+  --output runs \
+  --run-name quick-12x1024 \
+  --max-scans 12 \
+  --input-points 1024 \
+  --epochs 2 \
+  --batch-size 2 \
+  --class-weights auto \
+  --device cpu
+```
+
+`--max-scans` escolhe scans uniformemente ao longo da sequência temporal e
+mantém o split temporal. Esse resultado serve para validar o pipeline e
+comparar configurações; não deve ser tratado como modelo final.
+
 ```bash
 python -m ml.cli train \
   --dataset dados/warehouse \

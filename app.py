@@ -763,23 +763,46 @@ class GuiController:
             chip.text = text
             chip.props(f"color={color}")
 
-    def choose_dataset_folder(self) -> None:
-        """Abre seletor nativo quando Tk está disponível; texto continua aceito."""
+    async def choose_dataset_folder(self) -> None:
+        """Abre o seletor do pywebview sem bloquear o loop da NiceGUI.
 
-        selected: str | None = None
+        Navegadores não podem expor o caminho absoluto de uma pasta local.
+        Nesse modo a entrada manual permanece disponível e recebe uma
+        orientação, em vez de tentar abrir um diálogo Tk síncrono.
+        """
+
         try:
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            selected = filedialog.askdirectory(title="Selecione a pasta do dataset") or None
-            root.destroy()
-        except Exception:
-            # Ambientes sem Tk (servidor Linux/empacotamento) usam o input manual.
-            selected = None
-        if selected:
-            self.refs["dataset_input"].value = selected
+            from nicegui import app as nicegui_app
+
+            window = nicegui_app.native.main_window
+            if window is None:
+                self._notify(
+                    "No navegador, digite o caminho da pasta e clique em Validar."
+                )
+                return
+
+            import webview  # type: ignore
+
+            current = str(self.refs["dataset_input"].value or "").strip()
+            initial_directory = (
+                str(Path(current).expanduser())
+                if current and Path(current).expanduser().is_dir()
+                else str(Path.cwd())
+            )
+            selected_paths = await window.create_file_dialog(
+                dialog_type=webview.FileDialog.FOLDER,
+                directory=initial_directory,
+            )
+        except Exception as exc:
+            self._notify(
+                f"Não foi possível abrir o seletor ({exc}). "
+                "Digite o caminho da pasta e clique em Validar.",
+                error=True,
+            )
+            return
+
+        if selected_paths:
+            self.refs["dataset_input"].value = str(selected_paths[0])
             self.validate_dataset_from_ui()
 
     def validate_dataset_from_ui(self) -> None:

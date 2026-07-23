@@ -76,9 +76,29 @@ def _resolve_run_dir(output: str, run_name: str | None, resume: str | None) -> P
     return candidate
 
 
+def _select_scan_subset(scans: list[Path], maximum: int | None) -> list[Path]:
+    """Seleciona scans uniformemente ao longo da sequência temporal."""
+
+    if maximum is None or int(maximum) >= len(scans):
+        return scans
+    maximum = int(maximum)
+    if maximum < 2:
+        raise ValueError("--max-scans deve ser pelo menos 2")
+    positions = [round(index * (len(scans) - 1) / (maximum - 1)) for index in range(maximum)]
+    return [scans[position] for position in positions]
+
+
 def train_command(args: argparse.Namespace) -> int:
     torch = require_torch("usar o comando ml train")
     model_config, train_config = _config(args.config)
+    if args.input_points is not None:
+        model_config = PointNet2Config.from_mapping(
+            model_config.to_dict(), input_points=args.input_points
+        )
+    if args.batch_size is not None:
+        train_config = TrainingConfig.from_mapping(
+            train_config.to_dict(), batch_size=args.batch_size
+        )
     if args.epochs is not None:
         train_config = TrainingConfig.from_mapping(train_config.to_dict(), epochs=args.epochs)
     if args.device is not None:
@@ -87,6 +107,7 @@ def train_command(args: argparse.Namespace) -> int:
     bin_dir = root if root.name.casefold() in {"bin", "bins"} else root / "bin"
     dataset_root = bin_dir.parent if bin_dir.name.casefold() in {"bin", "bins"} else root
     scans = sorted(bin_dir.glob("*.bin"))
+    scans = _select_scan_subset(scans, args.max_scans)
     if not scans:
         raise FileNotFoundError(f"Nenhum .bin encontrado em {bin_dir}")
     if len(scans) < 2:
@@ -185,6 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--resume", help="checkpoint ou diretório de execução para retomar")
     train.add_argument("--config", help="arquivo JSON/YAML com model/training")
     train.add_argument("--epochs", type=int)
+    train.add_argument("--batch-size", type=int, help="batch menor para testes rápidos")
+    train.add_argument("--max-scans", type=int, help="limita scans, preservando cobertura temporal")
+    train.add_argument("--input-points", type=int, help="pontos por scan, por exemplo 1024")
     train.add_argument("--device", default=None, help="cpu, cuda ou auto")
     train.add_argument(
         "--class-weights",

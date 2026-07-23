@@ -6,6 +6,7 @@ da página só ocorre quando ``main``/``run_app`` é chamado.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -58,6 +59,37 @@ def test_list_scan_files_ordena_ids_numericos(tmp_path: Path) -> None:
         "2.bin",
         "10.bin",
     ]
+
+
+def test_folder_picker_uses_non_blocking_native_dialog(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from nicegui import app as nicegui_app
+    import webview
+
+    selected = tmp_path / "warehouse"
+    selected.mkdir()
+    calls: list[dict[str, object]] = []
+
+    class FakeWindow:
+        async def create_file_dialog(self, **kwargs: object) -> tuple[str]:
+            calls.append(kwargs)
+            return (str(selected),)
+
+    controller = GuiController()
+    controller.refs["dataset_input"] = SimpleNamespace(value="")
+    validations: list[bool] = []
+    controller.validate_dataset_from_ui = lambda: validations.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr(nicegui_app.native, "main_window", FakeWindow())
+
+    asyncio.run(controller.choose_dataset_folder())
+
+    assert calls == [{
+        "dialog_type": webview.FileDialog.FOLDER,
+        "directory": str(Path.cwd()),
+    }]
+    assert controller.refs["dataset_input"].value == str(selected)
+    assert validations == [True]
 
 
 def test_progress_state_atualiza_com_limites() -> None:
