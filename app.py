@@ -134,6 +134,16 @@ class DatasetInfo:
     def complete(self) -> bool:
         return self.ready and self.label_dir is not None and self.vis_dir is not None
 
+    @property
+    def evaluation_ready(self) -> bool:
+        """Indica se todos os scans possuem labels para avaliação."""
+        return self.ready and self.label_count == self.bin_count and self.label_count > 0
+
+    @property
+    def preview_ready(self) -> bool:
+        """Indica se todos os scans possuem imagens de visualização."""
+        return self.ready and self.vis_count == self.bin_count and self.vis_count > 0
+
 
 @dataclass
 class ProgressState:
@@ -221,7 +231,7 @@ def _contar_arquivos(path: Path | None, extensoes: Iterable[str]) -> int:
         return 0
 
 
-def validate_dataset(path: str | os.PathLike[str]) -> DatasetInfo:
+def _validate_dataset_legacy(path: str | os.PathLike[str]) -> DatasetInfo:
     """Valida a estrutura local ``bin/``, ``label/`` e ``vis/``.
 
     A função não cria diretórios nem toca no conteúdo dos scans. Uma pasta
@@ -286,6 +296,35 @@ def validate_dataset(path: str | os.PathLike[str]) -> DatasetInfo:
         vis_count=vis_count,
         errors=tuple(errors),
         warnings=tuple(warnings),
+    )
+
+
+def validate_dataset(path: str | os.PathLike[str]) -> DatasetInfo:
+    """Adapta o diagnóstico único do serviço de dataset para a GUI."""
+
+    try:
+        from core.dataset_service import validar_dataset
+    except (ImportError, ModuleNotFoundError):
+        return _validate_dataset_legacy(path)
+    diagnosis = validar_dataset(path)
+    counts = diagnosis.get("contagens", diagnosis.get("counts", {}))
+    directories = diagnosis.get("diretorios", {})
+    root = Path(diagnosis.get("root", diagnosis.get("pasta", path))).expanduser()
+    bin_dir = Path(directories["bin"]) if directories.get("bin") else None
+    label_dir = Path(directories["label"]) if directories.get("label") else None
+    vis_dir = Path(directories["vis"]) if directories.get("vis") else None
+    errors = tuple(str(item) for item in diagnosis.get("erros", diagnosis.get("errors", [])))
+    warnings = tuple(str(item) for item in diagnosis.get("avisos", diagnosis.get("warnings", [])))
+    return DatasetInfo(
+        root=root,
+        bin_dir=bin_dir,
+        label_dir=label_dir,
+        vis_dir=vis_dir,
+        bin_count=int(counts.get("bin", 0) or 0),
+        label_count=int(counts.get("label", 0) or 0),
+        vis_count=int(counts.get("vis", 0) or 0),
+        errors=errors,
+        warnings=warnings,
     )
 
 
@@ -522,7 +561,10 @@ class CoreAdapter:
             # The per-scan service also exports STL geometry.  Prefer it over
             # the layout-only helper so PointNet++ predictions reach FlexSim
             # with the same artifacts as the heuristic backend.
-            ("exportar_flexsim", "export_flexsim", "export_results", "export_dataset"),
+            # Prefer the result-based API: ``export_flexsim`` can consume the
+            # predictions already shown by the UI. ``exportar_flexsim`` is a
+            # legacy per-scan shortcut that runs detection again.
+            ("export_flexsim", "export_results", "export_dataset", "exportar_flexsim"),
         )
         if function is not None:
             # O serviço atual expõe ``exportar_flexsim(scan, saida, ...)``
@@ -605,6 +647,7 @@ class GuiController:
         self.metrics: dict[str, Any] | None = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lidar2flexsim")
         self.future: Future[Any] | None = None
+        self.export_future: Future[Any] | None = None
         self.cancel_event = threading.Event()
         self.progress = ProgressState()
         self.refs: dict[str, Any] = {}
@@ -759,7 +802,19 @@ class GuiController:
             # pasta baixada por padrão e podem ser alterados pelo usuário.
             self.output_dir = Path.cwd() / "saida_gui" / info.root.name
             self.refs["output_input"].value = str(self.output_dir)
-            self._show_dataset_message("Dataset pronto para processamento." + (f" {' '.join(info.warnings)}" if info.warnings else ""))
+            readiness = ""
+            if info.evaluation_ready:
+                readiness += " pronto para avaliação"
+            else:
+                readiness += " sem cobertura completa de labels para avaliação"
+            if info.preview_ready:
+                readiness += " e preview"
+            elif info.vis_dir is not None:
+                readiness += " (preview parcial)"
+            self._show_dataset_message(
+                "Dataset pronto para processamento;" + readiness + "." +
+                (f" {' '.join(info.warnings)}" if info.warnings else "")
+            )
             self._sync_selection()
         else:
             self.scan_files = []
@@ -965,6 +1020,17 @@ class GuiController:
             except Exception as exc:
                 self._notify(f"Falha no processamento: {exc}", error=True)
             self._update_buttons()
+        export_future = self.export_future
+        if export_future is not None and export_future.done():
+            self.export_future = None
+            try:
+                exported = export_future.result()
+                if self.result is not None and isinstance(exported, Mapping):
+                    self.result.update(exported)
+                self._notify("Arquivos para o FlexSim exportados.")
+            except Exception as exc:
+                self._notify(f"Falha ao exportar: {exc}", error=True)
+            self._update_buttons()
 
     def _render_results(self) -> None:
         result = self.result or {}
@@ -1059,11 +1125,14 @@ class GuiController:
     def export_results(self) -> None:
         if not self.result or self.output_dir is None or self.dataset is None:
             return
+        if self.export_future is not None and not self.export_future.done():
+            return
         try:
             config = self._build_config()
-            exported = self.adapter.export(self.result, config)
-            self.result.update(exported)
-            self._notify("Arquivos para o FlexSim exportados.")
+            result_snapshot = dict(self.result)
+            self.export_future = self.executor.submit(self.adapter.export, result_snapshot, config)
+            self._notify("Exportação iniciada em segundo plano.")
+            self._update_buttons()
         except Exception as exc:
             self._notify(f"Falha ao exportar: {exc}", error=True)
 
@@ -1094,7 +1163,8 @@ class GuiController:
             (self.refs["cancel_button"].enable if running else self.refs["cancel_button"].disable)()
         has_result = self.result is not None
         if self.refs.get("export_button") is not None:
-            (self.refs["export_button"].enable if has_result else self.refs["export_button"].disable)()
+            exporting = self.export_future is not None and not self.export_future.done()
+            (self.refs["export_button"].enable if has_result and not exporting else self.refs["export_button"].disable)()
         if self.refs.get("open_button") is not None:
             (self.refs["open_button"].enable if self.output_dir is not None else self.refs["open_button"].disable)()
 

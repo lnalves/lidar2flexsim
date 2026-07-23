@@ -176,8 +176,10 @@ def iou_3d(a: dict, b: dict) -> float:
 def erro_geometrico(predicao: dict, verdade: dict) -> dict:
     centro_erro = [abs(a - b) for a, b in zip(predicao["centro"], verdade["centro"])]
     dimensao_erro = [abs(a - b) for a, b in zip(predicao["dimensoes"], verdade["dimensoes"])]
-    diferenca_yaw = abs((predicao["yaw_rad"] - verdade["yaw_rad"] + math.pi)
-                        % (2 * math.pi) - math.pi)
+    # Warehouse boxes do not encode a directed heading: rotating a rectangle
+    # by pi represents the same footprint. Normalize the error modulo pi.
+    diferenca_yaw = abs((predicao["yaw_rad"] - verdade["yaw_rad"] + math.pi / 2)
+                        % math.pi - math.pi / 2)
     return {
         "erro_centro_m": centro_erro,
         "erro_dimensao_m": dimensao_erro,

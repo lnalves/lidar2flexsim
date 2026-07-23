@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from .checkpoints import load_checkpoint
+from .calibration import PredictionCalibrationConfig, calibrate_predictions
 from .config import DEFAULT_CLASS_NAMES, PointNet2Config
 from .data import load_bin, prepare_point_sample
 from .dependencies import require_torch
@@ -188,6 +189,8 @@ def predict_points(
     model: Any | None = None,
     device: str = "cpu",
     num_points: int | None = None,
+    sampling_seed: int = 0,
+    debug_diagnostics: bool = False,
     preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
     voxel: float | None = None,
     remove_ground: bool | None = None,
@@ -235,7 +238,8 @@ def predict_points(
     processed, preprocessing_diagnostics = preprocess_points(raw, settings)
     requested = int(num_points or 0)
     count = requested if requested > 0 else model_config.input_points
-    model_points, selected_indices = _prepare_points(processed, count)
+    sampling_seed = int(sampling_seed)
+    model_points, selected_indices = _prepare_points(processed, count, seed=sampling_seed)
     tensor = torch.from_numpy(model_points).unsqueeze(0).to(device=device_obj, dtype=torch.float32)
     model.to(device_obj)
     model.eval()
@@ -243,22 +247,37 @@ def predict_points(
         logits = model(tensor)
         probabilities = logits.softmax(dim=-1)[0]
         confidence, labels = probabilities.max(dim=-1)
+    sampling_method = (
+        "zero_fill" if len(processed) == 0
+        else "without_replacement" if len(processed) >= count
+        else "with_replacement"
+    )
+    diagnostics: dict[str, Any] = {
+        "input_points": int(len(raw)),
+        "voxel_points": int(preprocessing_diagnostics["voxel_points"]),
+        "processed_points": int(preprocessing_diagnostics["processed_points"]),
+        "model_points": int(len(model_points)),
+        "ground": preprocessing_diagnostics["ground"],
+        "preprocessing": settings.to_dict(),
+        "sampling": {
+            "method": sampling_method,
+            "seed": sampling_seed,
+            "source_points": int(len(processed)),
+            "requested_points": int(count),
+            "selected_points": int(len(model_points)),
+            "replacement": bool(sampling_method == "with_replacement"),
+        },
+        "device": str(device_obj),
+        "checkpoint": str(checkpoint) if checkpoint is not None else None,
+    }
+    if debug_diagnostics:
+        diagnostics["selected_indices"] = selected_indices.tolist()
     return {
         "points": model_points,
         "labels": labels.cpu().numpy().astype(np.int64),
         "confidence": confidence.cpu().numpy().astype(np.float32),
         "class_names": model_config.class_names,
-        "diagnostics": {
-            "input_points": int(len(raw)),
-            "voxel_points": int(preprocessing_diagnostics["voxel_points"]),
-            "processed_points": int(preprocessing_diagnostics["processed_points"]),
-            "model_points": int(len(model_points)),
-            "selected_indices": selected_indices.tolist(),
-            "ground": preprocessing_diagnostics["ground"],
-            "preprocessing": settings.to_dict(),
-            "device": str(device_obj),
-            "checkpoint": str(checkpoint) if checkpoint is not None else None,
-        },
+        "diagnostics": diagnostics,
     }
 
 
@@ -269,10 +288,13 @@ def inferir_scan(
     model: Any | None = None,
     device: str = "cpu",
     num_points: int | None = None,
+    sampling_seed: int = 0,
+    debug_diagnostics: bool = False,
     score_threshold: float = 0.50,
     cluster_eps: float = 0.35,
     min_cluster_points: int = 5,
     class_names: Sequence[str] | None = None,
+    calibration: PredictionCalibrationConfig | Mapping[str, Any] | None = None,
     preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
     voxel: float | None = None,
     remove_ground: bool | None = None,
@@ -304,6 +326,8 @@ def inferir_scan(
         model=model,
         device=device,
         num_points=num_points,
+        sampling_seed=sampling_seed,
+        debug_diagnostics=debug_diagnostics,
         preprocessing=preprocessing,
         voxel=voxel,
         remove_ground=remove_ground,
@@ -355,6 +379,12 @@ def inferir_scan(
     records.sort(key=lambda item: (-float(item[0]["score"]), str(item[0]["classe"])))
     predictions = [item[0] for item in records]
     clusters = [item[1] for item in records]
+    configured_calibration = calibration
+    if configured_calibration is None:
+        configured_calibration = getattr(model_config, "calibration", None)
+    predictions, clusters, calibration_diagnostics = calibrate_predictions(
+        predictions, clusters, configured_calibration
+    )
     diagnostics = dict(result["diagnostics"])
     diagnostics.update(
         {
@@ -364,6 +394,7 @@ def inferir_scan(
             "cluster_eps": float(cluster_eps),
             "min_cluster_points": int(min_cluster_points),
             "class_counts": class_counts,
+            "calibration": calibration_diagnostics,
         }
     )
     ground = result["diagnostics"].get("ground", {})

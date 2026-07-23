@@ -7,6 +7,7 @@ da página só ocorre quando ``main``/``run_app`` é chamado.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from app import (
     GuiController,
@@ -15,6 +16,7 @@ from app import (
     ProgressState,
     list_scan_files,
     validate_dataset,
+    CoreAdapter,
 )
 
 
@@ -31,6 +33,8 @@ def test_validate_dataset_habilita_bin_e_reporta_partes_opcionais(tmp_path: Path
     assert info.bin_dir == raiz / "BIN"
     assert info.label_dir is None
     assert info.vis_dir is None
+    assert info.evaluation_ready is False
+    assert info.preview_ready is False
     assert not info.errors
     assert info.warnings
 
@@ -108,3 +112,41 @@ def test_format_diagnostics_resume_segmentacao() -> None:
     assert "4 clusters" in texto
     assert "inclinação média" in texto
     assert "-0.600 m" in texto
+
+
+def test_export_prefere_resultados_existentes_sem_reprocessar(tmp_path: Path) -> None:
+    chamadas: list[str] = []
+
+    def export_flexsim(**kwargs: object) -> dict[str, object]:
+        chamadas.append("export_flexsim")
+        assert kwargs["predictions"] == {"000001": [{"classe": "Box"}]}
+        return {"ok": True}
+
+    def exportar_flexsim(*args: object, **kwargs: object) -> dict[str, object]:
+        chamadas.append("exportar_flexsim")
+        raise AssertionError("a exportação não deve repetir a inferência")
+
+    adapter = CoreAdapter()
+    adapter._modules = {
+        "pipeline_service": SimpleNamespace(
+            export_flexsim=export_flexsim,
+            exportar_flexsim=exportar_flexsim,
+        )
+    }
+    config = ProcessingConfig(
+        dataset_dir=tmp_path,
+        bin_dir=tmp_path,
+        label_dir=None,
+        vis_dir=None,
+        output_dir=tmp_path / "saida",
+        scan_paths=[tmp_path / "000001.bin"],
+        params=PARAMETER_PRESETS["equilibrado"],
+    )
+
+    result = adapter.export(
+        {"predictions": {"000001": [{"classe": "Box"}]}},
+        config,
+    )
+
+    assert result["ok"] is True
+    assert chamadas == ["export_flexsim"]

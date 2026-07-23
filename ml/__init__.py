@@ -57,6 +57,13 @@ from .checkpoints import load_checkpoint, save_checkpoint
 from .inference import inferir_scan, predict_points
 from .models.pointnet2_seg import PointNet2Segmentation
 from .training import smoke_train, train_model
+from .benchmark import (
+    build_benchmark_manifest,
+    load_benchmark_manifest,
+    run_benchmark,
+    save_benchmark_manifest,
+)
+from .calibration import PredictionCalibrationConfig, calibrate_predictions
 
 __all__ = [
     "CLASS_NAMES",
@@ -76,6 +83,8 @@ __all__ = [
     "WarehouseScan",
     "assign_point_labels",
     "box_corners",
+    "build_benchmark_manifest",
+    "calibrate_predictions",
     "carregar_bin",
     "class_index_to_name",
     "class_name_to_index",
@@ -103,16 +112,20 @@ __all__ = [
     "MissingOptionalDependency",
     "PointNet2Config",
     "PointPreprocessingConfig",
+    "PredictionCalibrationConfig",
     "PointNet2Segmentation",
     "TrainingConfig",
     "inferir_scan",
     "load_checkpoint",
+    "load_benchmark_manifest",
     "load_config",
     "predict_points",
     "pyg_available",
     "save_checkpoint",
+    "save_benchmark_manifest",
     "save_config",
     "smoke_train",
+    "run_benchmark",
     "train_model",
     "torch_available",
 ]

@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from .calibration import PredictionCalibrationConfig
 from .preprocessing import PointPreprocessingConfig
 
 
@@ -55,6 +56,7 @@ class PointNet2Config:
     dropout: float = 0.10
     class_names: tuple[str, ...] = field(default_factory=lambda: DEFAULT_CLASS_NAMES)
     preprocessing: PointPreprocessingConfig = field(default_factory=PointPreprocessingConfig)
+    calibration: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -82,6 +84,8 @@ class PointNet2Config:
         if not isinstance(preprocessing, PointPreprocessingConfig):
             preprocessing = PointPreprocessingConfig.from_mapping(preprocessing)
         object.__setattr__(self, "preprocessing", preprocessing)
+        calibration = PredictionCalibrationConfig.from_mapping(self.calibration).to_dict()
+        object.__setattr__(self, "calibration", calibration)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None = None, **overrides: Any) -> "PointNet2Config":
@@ -109,6 +113,7 @@ class PointNet2Config:
             "num_classes", "in_channels", "input_points", "sa1_points",
             "sa2_points", "neighbors", "hidden_channels", "dropout", "class_names",
             "preprocessing",
+            "calibration",
         }
         unknown = sorted(set(data) - fields)
         if unknown:
@@ -117,12 +122,15 @@ class PointNet2Config:
             data["class_names"] = _as_tuple(data["class_names"], DEFAULT_CLASS_NAMES)
         if "preprocessing" in data:
             data["preprocessing"] = PointPreprocessingConfig.from_mapping(data["preprocessing"])
+        if "calibration" in data:
+            data["calibration"] = PredictionCalibrationConfig.from_mapping(data["calibration"]).to_dict()
         return cls(**data)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["class_names"] = list(self.class_names)
         data["preprocessing"] = self.preprocessing.to_dict()
+        data["calibration"] = dict(self.calibration)
         return data
 
 

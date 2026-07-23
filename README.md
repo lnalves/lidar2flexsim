@@ -133,24 +133,73 @@ de épocas e prefira uma GPU):
 python -m ml.cli train \
   --dataset dados/warehouse \
   --config ml/configs/pointnet2_seg.yaml \
-  --output checkpoints \
+  --output runs \
   --device cpu \
-  --class-weights 0.1,1,1,1,1,1
+  --class-weights auto
 ```
 
 `--class-weights` é opcional, mas costuma ajudar porque o fundo ocupa a maior
 parte dos pontos; a ordem é `background`, `Box`, `ELFplusplus`, `CargoBike`,
 `FTS`, `ForkLift`.
 
-Cada época grava um checkpoint em `checkpoints/`. Para testar um scan:
+Cada execução cria uma pasta isolada com `config.json`, `metadata.json`,
+`history.jsonl`, `checkpoints/last.pt`, `checkpoints/best.pt` e checkpoints por
+época. Para retomar uma execução interrompida:
+
+```bash
+python -m ml.cli train \
+  --dataset dados/warehouse \
+  --config ml/configs/pointnet2_seg.yaml \
+  --output runs \
+  --resume runs/20260723_213000_pointnet2
+```
+
+Para testar um scan:
 
 ```bash
 python -m ml.cli infer \
   --scan dados/warehouse/bin/000000.bin \
-  --checkpoint checkpoints/pointnet2_epoch_0020.pt \
+  --checkpoint runs/.../checkpoints/best.pt \
   --device cpu \
   --score-threshold 0.50
 ```
+
+Filtros pós-segmentação podem ser registrados em JSON e aplicados sem alterar
+os pesos:
+
+```json
+{"min_score": 0.55, "min_points": 8, "max_iou": 0.85,
+ "per_class_min_dimensions": {"ForkLift": [0.3, 0.3, 0.3]}}
+```
+
+```bash
+python -m ml.cli infer \
+  --scan dados/warehouse/bin/000000.bin \
+  --checkpoint runs/.../checkpoints/best.pt \
+  --calibration calibration.json
+```
+
+Checkpoints são carregados com desserialização segura (`weights_only=True`),
+validação de arquitetura e migração controlada da versão 1. Não use arquivos
+de pesos de origem desconhecida sem revisar sua procedência.
+
+Para congelar um benchmark e separar segmentação de caixas:
+
+```bash
+python -m ml.cli benchmark \
+  --dataset dados/warehouse \
+  --checkpoint runs/.../checkpoints/best.pt \
+  --max-scans 12 \
+  --output benchmark/warehouse-12
+```
+
+O diretório contém `manifest.json` (splits temporais imutáveis) e
+`benchmark.json` (métricas por classe, caixas, tempo, ambiente e baseline).
+
+O benchmark e o treino mínimo são validações operacionais, não substituem o
+retreinamento completo do Warehouse. O checkpoint histórico disponível ainda
+deve ser tratado como baseline experimental; promova um modelo somente depois
+de comparar o relatório fixo de validação e teste, por classe e por IoU.
 
 O mesmo backend pode ser usado na CLI principal, já com exportação para o
 FlexSim:
@@ -158,7 +207,7 @@ FlexSim:
 ```bash
 python lidar2flexsim.py dados/warehouse/bin/000000.bin \
   --backend pointnet2 \
-  --checkpoint checkpoints/pointnet2_epoch_0020.pt \
+  --checkpoint runs/.../checkpoints/best.pt \
   --saida saida/000000-pointnet2 \
   --config config/warehouse_classes.json
 ```

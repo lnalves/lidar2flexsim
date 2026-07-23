@@ -8,6 +8,7 @@ import pytest
 
 from avaliar_deteccoes import (
     carregar_predicoes,
+    erro_geometrico,
     ler_labels,
     predicao_para_caixa,
     resumir_scans,
@@ -84,3 +85,17 @@ def test_resumir_scans_calcula_tp_fp_fn_e_erros(tmp_path: Path) -> None:
         assert metricas["f1"] == pytest.approx(1.0)
         assert metricas["erro_centro_medio_m"] == pytest.approx(0.0)
 
+
+def test_erro_geometrico_considera_simetria_de_pi() -> None:
+    predicao = {
+        "yaw_rad": 0.0,
+        "centro": [0.0, 0.0, 0.0],
+        "dimensoes": [1.0, 2.0, 1.0],
+    }
+    verdade = {
+        "yaw_rad": 3.141592653589793,
+        "centro": [0.0, 0.0, 0.0],
+        "dimensoes": [1.0, 2.0, 1.0],
+    }
+
+    assert erro_geometrico(predicao, verdade)["erro_yaw_rad"] == pytest.approx(0.0)

@@ -18,7 +18,8 @@
       "remove_outliers": false,
       "outlier_neighbors": 12,
       "outlier_std_ratio": 2.5
-    }
+    },
+    "calibration": {}
   },
   "training": {
     "epochs": 20,
