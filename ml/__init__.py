@@ -51,6 +51,7 @@ from .geometry import (
     pontos_na_caixa_orientada,
 )
 from .config import PointNet2Config, TrainingConfig, load_config, save_config
+from .preprocessing import PointPreprocessingConfig, preprocess_points
 from .dependencies import MissingOptionalDependency, pyg_available, torch_available
 from .checkpoints import load_checkpoint, save_checkpoint
 from .inference import inferir_scan, predict_points
@@ -93,6 +94,7 @@ __all__ = [
     "points_in_oriented_box",
     "points_inside_oriented_box",
     "prepare_point_sample",
+    "preprocess_points",
     "prepare_sample",
     "read_label_file",
     "rotular_pontos",
@@ -100,6 +102,7 @@ __all__ = [
     "temporal_split",
     "MissingOptionalDependency",
     "PointNet2Config",
+    "PointPreprocessingConfig",
     "PointNet2Segmentation",
     "TrainingConfig",
     "inferir_scan",

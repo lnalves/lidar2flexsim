@@ -63,6 +63,7 @@ def train_command(args: argparse.Namespace) -> int:
         num_points=model_config.input_points,
         seed=train_config.seed,
         augment=True,
+        preprocessing=model_config.preprocessing,
     )
     validation_dataset = WarehouseSegmentationDataset(
         validation_scans,
@@ -70,6 +71,7 @@ def train_command(args: argparse.Namespace) -> int:
         class_names=model_config.class_names,
         num_points=model_config.input_points,
         seed=train_config.seed,
+        preprocessing=model_config.preprocessing,
     )
     loader_kwargs = {"batch_size": train_config.batch_size, "num_workers": 0}
     train_loader = torch.utils.data.DataLoader(train_dataset, shuffle=True, **loader_kwargs)

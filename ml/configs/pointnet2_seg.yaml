@@ -8,7 +8,17 @@
     "neighbors": 16,
     "hidden_channels": 64,
     "dropout": 0.1,
-    "class_names": ["background", "Box", "ELFplusplus", "CargoBike", "FTS", "ForkLift"]
+    "class_names": ["background", "Box", "ELFplusplus", "CargoBike", "FTS", "ForkLift"],
+    "preprocessing": {
+      "voxel": 0.0,
+      "remove_ground": false,
+      "plane_distance": 0.05,
+      "max_ground_tilt_deg": 25.0,
+      "ground_quantile": 0.3,
+      "remove_outliers": false,
+      "outlier_neighbors": 12,
+      "outlier_std_ratio": 2.5
+    }
   },
   "training": {
     "epochs": 20,

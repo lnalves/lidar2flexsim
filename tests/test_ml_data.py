@@ -10,6 +10,7 @@ import pytest
 from ml import (
     OrientedBox,
     WarehousePointDataset,
+    WarehouseSegmentationDataset,
     assign_point_labels,
     class_name_to_index,
     load_bin,
@@ -17,6 +18,7 @@ from ml import (
     read_label_file,
     points_in_oriented_box,
 )
+from ml.preprocessing import PointPreprocessingConfig, preprocess_points
 
 
 def _write_scan(root: Path) -> tuple[Path, Path]:
@@ -111,3 +113,80 @@ def test_dataset_can_return_torch_tensors_when_installed(tmp_path: Path) -> None
     assert isinstance(item["points"], torch.Tensor)
     assert isinstance(item["labels"], torch.Tensor)
     assert tuple(item["points"].shape) == (6, 4)
+
+
+def test_shared_preprocessing_is_applied_before_label_sampling(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    label_dir = tmp_path / "label"
+    bin_dir.mkdir()
+    label_dir.mkdir()
+    points = np.asarray([
+        [0.0, 0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 0.0, 1.0, 0.0],
+    ], dtype=np.float32)
+    (bin_dir / "000000.bin").write_bytes(points.tobytes())
+    (label_dir / "000000.txt").write_text(
+        "Box 0.5 0 1 1 1 1 0\n", encoding="utf-8"
+    )
+
+    config = PointPreprocessingConfig(remove_ground=True, plane_distance=0.01)
+    dataset = WarehousePointDataset(
+        tmp_path,
+        num_points=4,
+        random_seed=0,
+        preprocessing=config,
+    )
+    item = dataset[0]
+
+    assert item["points"].shape == (4, 4)
+    assert np.all(item["points"][:, 2] > 0.0)
+    assert 1 in set(item["labels"].tolist())
+
+
+def test_shared_preprocessing_reports_ground_and_keeps_shape() -> None:
+    points = np.asarray([
+        [0.0, 0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 0.0, 1.0, 0.0],
+    ], dtype=np.float32)
+
+    processed, diagnostics = preprocess_points(
+        points,
+        PointPreprocessingConfig(remove_ground=True, plane_distance=0.01),
+    )
+
+    assert processed.shape[1] == 4
+    assert diagnostics["ground"]["detected"] is True
+    assert diagnostics["processed_points"] == len(processed)
+
+
+def test_legacy_training_dataset_uses_the_same_preprocessing_contract(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    bin_dir = tmp_path / "bin"
+    label_dir = tmp_path / "label"
+    bin_dir.mkdir()
+    label_dir.mkdir()
+    points = np.asarray([
+        [0.0, 0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 0.0, 1.0, 0.0],
+    ], dtype=np.float32)
+    (bin_dir / "000000.bin").write_bytes(points.tobytes())
+    (label_dir / "000000.txt").write_text(
+        "Box 0.5 0 1 1 1 1 0\n", encoding="utf-8"
+    )
+
+    dataset = WarehouseSegmentationDataset(
+        [bin_dir / "000000.bin"],
+        label_dir=label_dir,
+        num_points=4,
+        preprocessing=PointPreprocessingConfig(remove_ground=True, plane_distance=0.01),
+    )
+    item = dataset[0]
+
+    assert np.all(item["points"].numpy()[:, 2] > 0.0)
+    assert 1 in set(item["labels"].numpy().tolist())

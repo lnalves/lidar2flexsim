@@ -35,11 +35,13 @@ from .warehouse import (
     points_to_segmentation_labels,
     temporal_split,
 )
+from ..preprocessing import PointPreprocessingConfig, preprocess_points
 
 __all__ = [
     "DEFAULT_BIN_FEATURES",
     "DEFAULT_NUM_POINTS",
     "PointSample",
+    "PointPreprocessingConfig",
     "WarehouseBox",
     "WarehouseDataset",
     "WarehousePointDataset",
@@ -58,6 +60,7 @@ __all__ = [
     "points_to_segmentation_labels",
     "prepare_point_sample",
     "prepare_sample",
+    "preprocess_points",
     "read_label_file",
     "rotular_pontos",
     "sample_fixed_points",

@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
 from ..config import DEFAULT_CLASS_NAMES
 from ..geometry import points_in_oriented_box, OrientedBox
+from ..preprocessing import PointPreprocessingConfig, preprocess_points
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,7 @@ class WarehouseSegmentationDataset:
         num_points: int = 4096,
         seed: int = 42,
         augment: bool = False,
+        preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
     ) -> None:
         self.scans = [Path(scan).expanduser() for scan in scans]
         self.label_dir = Path(label_dir).expanduser() if label_dir is not None else None
@@ -160,6 +162,7 @@ class WarehouseSegmentationDataset:
             raise ValueError("num_points deve ser maior que zero")
         self.seed = int(seed)
         self.augment = bool(augment)
+        self.preprocessing = PointPreprocessingConfig.from_mapping(preprocessing)
 
     def __len__(self) -> int:
         return len(self.scans)
@@ -179,6 +182,7 @@ class WarehouseSegmentationDataset:
         scan = self.scans[index]
         points = load_bin_points(scan, with_intensity=True)
         boxes = load_label_boxes(self._label_path(scan))
+        points, _ = preprocess_points(points, self.preprocessing)
         labels = points_to_segmentation_labels(points, boxes, self.class_names)
         rng = np.random.default_rng(self.seed + int(index))
         sample = prepare_point_sample(points, labels, num_points=self.num_points, rng=rng)

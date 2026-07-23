@@ -10,9 +10,16 @@ import numpy as np
 
 from .checkpoints import load_checkpoint
 from .config import DEFAULT_CLASS_NAMES, PointNet2Config
-from .data import load_bin
+from .data import load_bin, prepare_point_sample
 from .dependencies import require_torch
 from .models.pointnet2_seg import PointNet2Segmentation
+from .preprocessing import (
+    PointPreprocessingConfig,
+    estimate_ground_mask,
+    preprocess_points,
+    remove_sparse_outliers,
+    voxel_downsample,
+)
 
 
 def _normalizar_device(torch: Any, device: str) -> Any:
@@ -41,67 +48,28 @@ def _coerce_points(scan: str | Path | np.ndarray | Sequence[Sequence[float]]) ->
 
 
 def _voxel_downsample(points: np.ndarray, voxel: float) -> np.ndarray:
-    if len(points) == 0 or voxel <= 0:
-        return points
-    cells = np.floor(points[:, :3] / float(voxel)).astype(np.int64)
-    _, keep = np.unique(cells, axis=0, return_index=True)
-    return points[np.sort(keep)]
+    return voxel_downsample(points, voxel)
 
 
 def _estimate_ground(points: np.ndarray, quantile: float, max_tilt_deg: float, distance: float) -> tuple[np.ndarray, dict[str, Any]]:
-    """Estima um piso horizontal robusto usando a faixa inferior de altura."""
-
-    if len(points) < 3:
-        return np.ones(len(points), dtype=bool), {"detected": False}
-    z = points[:, 2].astype(np.float64)
-    cutoff = float(np.quantile(z, np.clip(float(quantile), 0.01, 0.9)))
-    candidates = z <= cutoff
-    if candidates.sum() < 3:
-        return np.ones(len(points), dtype=bool), {"detected": False}
-    low = z[candidates]
-    # A robust center of the floor band is more stable than the single lowest
-    # return, which can be a stray point.
-    plane_z = float(np.median(low))
-    inliers = np.abs(z - plane_z) <= max(float(distance), 1e-3)
-    normal = [0.0, 0.0, 1.0]
-    diagnostics = {
-        "detected": bool(inliers.sum() >= 3),
-        "normal": normal,
-        "height": plane_z,
-        "offset": -plane_z,
-        "tilt_deg": 0.0,
-        "inliers": int(inliers.sum()),
-        "candidate_points": int(candidates.sum()),
-        "max_tilt_deg": float(max_tilt_deg),
-    }
-    return ~inliers, diagnostics
+    return estimate_ground_mask(points, quantile, max_tilt_deg, distance)
 
 
 def _remove_sparse_outliers(points: np.ndarray, neighbors: int, std_ratio: float) -> np.ndarray:
-    if len(points) < 4 or int(neighbors) <= 0:
-        return points
-    # Voxel occupancy is a bounded approximation of statistical outlier
-    # removal. It avoids the O(N^2) distance matrix for large VLP-16 scans.
-    cells = np.floor(points[:, :3] / 0.10).astype(np.int64)
-    unique, inverse, counts = np.unique(cells, axis=0, return_inverse=True, return_counts=True)
-    expected = max(1.0, float(np.median(counts)))
-    threshold = max(1.0, expected / max(float(std_ratio), 0.1))
-    keep = counts[inverse] >= threshold
-    # Never erase an entire scan due to an unusually sparse scene.
-    return points[keep] if keep.sum() >= max(3, min(len(points), int(neighbors))) else points
+    return remove_sparse_outliers(points, neighbors, std_ratio)
 
 
 def _prepare_points(points: np.ndarray, count: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     if len(points) == 0:
         values = np.zeros((count, 4), dtype=np.float32)
         return values, np.zeros(count, dtype=np.int64)
-    rng = np.random.default_rng(seed)
-    if len(points) >= count:
-        # Deterministic sampling keeps UI re-runs reproducible.
-        indices = np.linspace(0, len(points) - 1, count, dtype=np.int64)
-    else:
-        indices = np.arange(count, dtype=np.int64) % len(points)
-    return points[indices], indices
+    sample = prepare_point_sample(
+        points,
+        num_points=count,
+        rng=np.random.default_rng(seed),
+        preserve_foreground=False,
+    )
+    return sample.points, sample.indices
 
 
 def _cluster_indices(points: np.ndarray, eps: float, min_points: int) -> list[np.ndarray]:
@@ -142,21 +110,45 @@ def _cluster_indices(points: np.ndarray, eps: float, min_points: int) -> list[np
 
 def _oriented_box(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     xyz = points[:, :3].astype(np.float64)
-    center = xyz.mean(axis=0)
+    if len(xyz) == 0:
+        return (
+            np.zeros(3, dtype=np.float32),
+            np.full(3, 0.05, dtype=np.float32),
+            0.0,
+        )
+    center_xy = xyz[:, :2].mean(axis=0)
     if len(xyz) >= 2:
-        centered_xy = xyz[:, :2] - center[:2]
+        centered_xy = xyz[:, :2] - center_xy
         covariance = centered_xy.T @ centered_xy
         _, vectors = np.linalg.eigh(covariance)
         axis = vectors[:, -1]
+        # PCA axes have arbitrary sign; canonicalize yaw for reproducible
+        # exports without changing the represented box.
+        if axis[0] < 0 or (abs(axis[0]) <= 1e-12 and axis[1] < 0):
+            axis = -axis
         yaw = float(math.atan2(axis[1], axis[0]))
         cosine, sine = math.cos(yaw), math.sin(yaw)
         local_x = cosine * centered_xy[:, 0] + sine * centered_xy[:, 1]
         local_y = -sine * centered_xy[:, 0] + cosine * centered_xy[:, 1]
+        local_center = np.array(
+            [0.5 * (local_x.min() + local_x.max()),
+             0.5 * (local_y.min() + local_y.max())],
+            dtype=np.float64,
+        )
+        center = np.array(
+            [
+                center_xy[0] + cosine * local_center[0] - sine * local_center[1],
+                center_xy[1] + sine * local_center[0] + cosine * local_center[1],
+                0.5 * (xyz[:, 2].min() + xyz[:, 2].max()),
+            ],
+            dtype=np.float64,
+        )
         dimensions = np.array(
             [np.ptp(local_x), np.ptp(local_y), np.ptp(xyz[:, 2])], dtype=np.float64
         )
     else:
         yaw = 0.0
+        center = xyz[0].copy()
         dimensions = np.zeros(3, dtype=np.float64)
     dimensions = np.maximum(dimensions, 0.05)
     return center.astype(np.float32), dimensions.astype(np.float32), yaw
@@ -196,29 +188,20 @@ def predict_points(
     model: Any | None = None,
     device: str = "cpu",
     num_points: int | None = None,
-    voxel: float = 0.0,
-    plane_distance: float = 0.05,
-    max_ground_tilt_deg: float = 25.0,
-    ground_quantile: float = 0.30,
-    remove_outliers: bool = False,
-    outlier_neighbors: int = 12,
-    outlier_std_ratio: float = 2.5,
+    preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
+    voxel: float | None = None,
+    remove_ground: bool | None = None,
+    plane_distance: float | None = None,
+    max_ground_tilt_deg: float | None = None,
+    ground_quantile: float | None = None,
+    remove_outliers: bool | None = None,
+    outlier_neighbors: int | None = None,
+    outlier_std_ratio: float | None = None,
 ) -> dict[str, Any]:
     """Executa somente a segmentação e retorna labels por ponto + diagnósticos."""
 
     torch = require_torch("executar inferência PointNet++")
     raw = _coerce_points(scan)
-    processed = _voxel_downsample(raw, float(voxel)) if float(voxel) > 0 else raw
-    keep_mask, ground = _estimate_ground(
-        processed,
-        ground_quantile,
-        max_ground_tilt_deg,
-        plane_distance,
-    )
-    processed = processed[keep_mask]
-    if remove_outliers:
-        processed = _remove_sparse_outliers(processed, outlier_neighbors, outlier_std_ratio)
-    requested = int(num_points or 0)
     device_obj = _normalizar_device(torch, device)
     # Model configuration determines the number of points when caller omits it.
     if model is None and checkpoint is not None:
@@ -232,6 +215,25 @@ def predict_points(
         raise RuntimeError("Informe checkpoint=... ou forneça model=... para inferência PointNet++.")
     if not isinstance(model_config, PointNet2Config):
         model_config = PointNet2Config.from_mapping(model_config)
+    settings = model_config.preprocessing
+    if preprocessing is not None:
+        settings = PointPreprocessingConfig.from_mapping(preprocessing)
+    overrides = {
+        name: value for name, value in {
+            "voxel": voxel,
+            "remove_ground": remove_ground,
+            "plane_distance": plane_distance,
+            "max_ground_tilt_deg": max_ground_tilt_deg,
+            "ground_quantile": ground_quantile,
+            "remove_outliers": remove_outliers,
+            "outlier_neighbors": outlier_neighbors,
+            "outlier_std_ratio": outlier_std_ratio,
+        }.items() if value is not None
+    }
+    if overrides:
+        settings = PointPreprocessingConfig.from_mapping(settings, **overrides)
+    processed, preprocessing_diagnostics = preprocess_points(raw, settings)
+    requested = int(num_points or 0)
     count = requested if requested > 0 else model_config.input_points
     model_points, selected_indices = _prepare_points(processed, count)
     tensor = torch.from_numpy(model_points).unsqueeze(0).to(device=device_obj, dtype=torch.float32)
@@ -248,11 +250,12 @@ def predict_points(
         "class_names": model_config.class_names,
         "diagnostics": {
             "input_points": int(len(raw)),
-            "voxel_points": int(len(processed) + int((~keep_mask).sum())),
-            "processed_points": int(len(processed)),
+            "voxel_points": int(preprocessing_diagnostics["voxel_points"]),
+            "processed_points": int(preprocessing_diagnostics["processed_points"]),
             "model_points": int(len(model_points)),
             "selected_indices": selected_indices.tolist(),
-            "ground": ground,
+            "ground": preprocessing_diagnostics["ground"],
+            "preprocessing": settings.to_dict(),
             "device": str(device_obj),
             "checkpoint": str(checkpoint) if checkpoint is not None else None,
         },
@@ -270,13 +273,15 @@ def inferir_scan(
     cluster_eps: float = 0.35,
     min_cluster_points: int = 5,
     class_names: Sequence[str] | None = None,
-    voxel: float = 0.0,
-    plane_distance: float = 0.05,
-    max_ground_tilt_deg: float = 25.0,
-    ground_quantile: float = 0.30,
-    remove_outliers: bool = False,
-    outlier_neighbors: int = 12,
-    outlier_std_ratio: float = 2.5,
+    preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
+    voxel: float | None = None,
+    remove_ground: bool | None = None,
+    plane_distance: float | None = None,
+    max_ground_tilt_deg: float | None = None,
+    ground_quantile: float | None = None,
+    remove_outliers: bool | None = None,
+    outlier_neighbors: int | None = None,
+    outlier_std_ratio: float | None = None,
 ) -> dict[str, Any]:
     """Detecta objetos e retorna ``predictions`` e ``diagnostics``.
 
@@ -299,7 +304,9 @@ def inferir_scan(
         model=model,
         device=device,
         num_points=num_points,
+        preprocessing=preprocessing,
         voxel=voxel,
+        remove_ground=remove_ground,
         plane_distance=plane_distance,
         max_ground_tilt_deg=max_ground_tilt_deg,
         ground_quantile=ground_quantile,

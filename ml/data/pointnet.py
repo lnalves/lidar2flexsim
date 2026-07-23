@@ -19,6 +19,7 @@ from ..classes import (
     normalize_class_name,
 )
 from ..geometry import OrientedBox, points_in_oriented_box
+from ..preprocessing import PointPreprocessingConfig, preprocess_points
 
 
 DEFAULT_BIN_FEATURES = 4
@@ -339,6 +340,7 @@ class WarehousePointDataset:
         as_torch: bool | None = None,
         include_boxes: bool = False,
         strict_classes: bool = True,
+        preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
     ) -> None:
         source = Path(root).expanduser()
         if not source.exists():
@@ -354,6 +356,7 @@ class WarehousePointDataset:
         self.return_tensors = bool(return_tensors if as_torch is None else as_torch)
         self.include_boxes = bool(include_boxes)
         self.strict_classes = bool(strict_classes)
+        self.preprocessing = PointPreprocessingConfig.from_mapping(preprocessing)
         files = sorted(self.bin_dir.glob("*.bin"))
         if scan_ids is not None:
             wanted = {Path(str(item)).stem for item in scan_ids}
@@ -377,10 +380,11 @@ class WarehousePointDataset:
         if label_path is not None and not label_path.is_file():
             label_path = None
         scan = load_scan(path, label_path, num_features=self.num_features, strict_classes=self.strict_classes)
-        labels = assign_point_labels(scan.points, scan.boxes) if scan.boxes else np.zeros(len(scan.points), dtype=np.int64)
+        points, _ = preprocess_points(scan.points, self.preprocessing)
+        labels = assign_point_labels(points, scan.boxes) if scan.boxes else np.zeros(len(points), dtype=np.int64)
         seed = None if self.random_seed is None else int(self.random_seed) + int(index)
         sample = prepare_point_sample(
-            scan.points,
+            points,
             labels,
             num_points=self.num_points,
             rng=seed,

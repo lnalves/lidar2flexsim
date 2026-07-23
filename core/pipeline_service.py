@@ -221,13 +221,6 @@ def _executar_pointnet2(
             score_threshold=params.score_threshold,
             cluster_eps=params.eps,
             min_cluster_points=params.min_points,
-            voxel=params.voxel,
-            plane_distance=params.plane_distance,
-            max_ground_tilt_deg=params.max_ground_tilt_deg,
-            ground_quantile=params.ground_quantile,
-            remove_outliers=params.remove_outliers,
-            outlier_neighbors=params.outlier_neighbors,
-            outlier_std_ratio=params.outlier_std_ratio,
         )
     except PipelineServiceError:
         raise

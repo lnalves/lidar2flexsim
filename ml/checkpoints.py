@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .config import PointNet2Config
 from .dependencies import require_torch
@@ -65,18 +65,36 @@ def load_checkpoint(
     source = Path(path).expanduser()
     if not source.exists():
         raise FileNotFoundError(source)
+    # Checkpoints are untrusted input at the application boundary. The
+    # weights-only unpickler accepts tensors and primitive container metadata,
+    # but refuses arbitrary Python globals that could execute code. The ML
+    # requirements pin PyTorch >= 2.2, where this argument is available.
     try:
-        payload = torch.load(source, map_location=map_location, weights_only=False)
-    except TypeError:  # PyTorch < 2.0 does not expose weights_only
-        payload = torch.load(source, map_location=map_location)
+        payload = torch.load(source, map_location=map_location, weights_only=True)
+    except TypeError as exc:
+        raise RuntimeError(
+            "Carregamento seguro de checkpoint requer PyTorch >= 2.2."
+        ) from exc
     if isinstance(payload, dict) and "state_dict" in payload:
         result = dict(payload)
     elif isinstance(payload, dict):
         result = {"format_version": 0, "state_dict": payload, "config": {}}
     else:
         raise ValueError(f"Checkpoint inválido: {source}")
-    result.setdefault("config", {})
-    result.setdefault("metrics", {})
+    if not isinstance(result.get("state_dict"), Mapping):
+        raise ValueError(f"Checkpoint inválido: state_dict ausente ou não é mapping: {source}")
+    config = result.get("config", {})
+    metrics = result.get("metrics", {})
+    if config is None:
+        config = {}
+    if metrics is None:
+        metrics = {}
+    if not isinstance(config, Mapping):
+        raise ValueError(f"Checkpoint inválido: config não é mapping: {source}")
+    if not isinstance(metrics, Mapping):
+        raise ValueError(f"Checkpoint inválido: metrics não é mapping: {source}")
+    result["config"] = dict(config)
+    result["metrics"] = dict(metrics)
     if model is not None:
         incompatible = model.load_state_dict(result["state_dict"], strict=strict)
         if not strict:

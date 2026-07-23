@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from .preprocessing import PointPreprocessingConfig
+
 
 DEFAULT_CLASS_NAMES = (
     "background",
@@ -52,6 +54,7 @@ class PointNet2Config:
     hidden_channels: int = 64
     dropout: float = 0.10
     class_names: tuple[str, ...] = field(default_factory=lambda: DEFAULT_CLASS_NAMES)
+    preprocessing: PointPreprocessingConfig = field(default_factory=PointPreprocessingConfig)
 
     def __post_init__(self) -> None:
         for name in (
@@ -75,6 +78,10 @@ class PointNet2Config:
         if len(classes) != self.num_classes:
             raise ValueError("class_names deve conter exatamente num_classes itens")
         object.__setattr__(self, "class_names", classes)
+        preprocessing = self.preprocessing
+        if not isinstance(preprocessing, PointPreprocessingConfig):
+            preprocessing = PointPreprocessingConfig.from_mapping(preprocessing)
+        object.__setattr__(self, "preprocessing", preprocessing)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None = None, **overrides: Any) -> "PointNet2Config":
@@ -101,17 +108,21 @@ class PointNet2Config:
         fields = {
             "num_classes", "in_channels", "input_points", "sa1_points",
             "sa2_points", "neighbors", "hidden_channels", "dropout", "class_names",
+            "preprocessing",
         }
         unknown = sorted(set(data) - fields)
         if unknown:
             raise ValueError("Opções desconhecidas do modelo: " + ", ".join(unknown))
         if "class_names" in data:
             data["class_names"] = _as_tuple(data["class_names"], DEFAULT_CLASS_NAMES)
+        if "preprocessing" in data:
+            data["preprocessing"] = PointPreprocessingConfig.from_mapping(data["preprocessing"])
         return cls(**data)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["class_names"] = list(self.class_names)
+        data["preprocessing"] = self.preprocessing.to_dict()
         return data
 
 
