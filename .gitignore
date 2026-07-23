@@ -1,0 +1,57 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.pyre/
+.ruff_cache/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+my311_venv/
+.python-version
+
+# Packaging/build output
+build/
+dist/
+*.egg-info/
+*.whl
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Datasets and generated artefacts (usually several GB)
+dados/
+saida/
+outputs/
+runs/
+*.bin
+*.pcd
+*.las
+*.laz
+
+# Local application state/logs
+.nicegui/
+*.log
+*.tmp
+*.bak
+
+# OS/editor files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

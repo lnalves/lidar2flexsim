@@ -1,0 +1,426 @@
+{
+  "ok": true,
+  "formato": "lidar2flexsim-predicoes-v1",
+  "parametros": {
+    "voxel": 0.05,
+    "eps": 0.25,
+    "min_points": 20,
+    "plane_distance": 0.05,
+    "oriented_box": true,
+    "max_ground_tilt_deg": 25.0,
+    "ground_quantile": 0.3,
+    "remove_outliers": true,
+    "outlier_neighbors": 12,
+    "outlier_std_ratio": 2.5,
+    "cluster_mode": "3d",
+    "detector_backend": "heuristic",
+    "model_checkpoint": null,
+    "device": "auto",
+    "score_threshold": 0.5,
+    "num_points": 4096
+  },
+  "scans": {
+    "000000": [
+      {
+        "classe": "desconhecido",
+        "centro": [
+          4.471,
+          -0.435,
+          1.11
+        ],
+        "dimensoes": [
+          0.823,
+          0.27,
+          0.068
+        ],
+        "altura_topo": 1.851,
+        "rotacao_z": 44.417,
+        "n_pontos": 40,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "operador",
+        "centro": [
+          4.041,
+          -0.758,
+          1.038
+        ],
+        "dimensoes": [
+          0.385,
+          0.296,
+          0.192
+        ],
+        "altura_topo": 1.802,
+        "rotacao_z": -14.208,
+        "n_pontos": 13,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "operador",
+        "centro": [
+          -4.029,
+          1.332,
+          0.976
+        ],
+        "dimensoes": [
+          0.553,
+          0.323,
+          0.03
+        ],
+        "altura_topo": 1.791,
+        "rotacao_z": -50.456,
+        "n_pontos": 27,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "operador",
+        "centro": [
+          -4.005,
+          3.06,
+          0.983
+        ],
+        "dimensoes": [
+          0.785,
+          0.53,
+          0.244
+        ],
+        "altura_topo": 2.002,
+        "rotacao_z": 1.346,
+        "n_pontos": 47,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          -2.447,
+          4.83,
+          0.475
+        ],
+        "dimensoes": [
+          4.233,
+          2.116,
+          0.426
+        ],
+        "altura_topo": 2.21,
+        "rotacao_z": 41.193,
+        "n_pontos": 918,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          1.186,
+          3.408,
+          0.592
+        ],
+        "dimensoes": [
+          0.802,
+          0.302,
+          0.191
+        ],
+        "altura_topo": 1.593,
+        "rotacao_z": 65.16,
+        "n_pontos": 53,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "operador",
+        "centro": [
+          3.817,
+          -0.898,
+          0.909
+        ],
+        "dimensoes": [
+          0.337,
+          0.27,
+          0.117
+        ],
+        "altura_topo": 1.702,
+        "rotacao_z": 94.985,
+        "n_pontos": 17,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          0.392,
+          -3.665,
+          0.342
+        ],
+        "dimensoes": [
+          1.338,
+          0.601,
+          0.286
+        ],
+        "altura_topo": 1.644,
+        "rotacao_z": -48.731,
+        "n_pontos": 114,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "operador",
+        "centro": [
+          -4.175,
+          -1.022,
+          1.0
+        ],
+        "dimensoes": [
+          0.534,
+          0.446,
+          0.157
+        ],
+        "altura_topo": 1.943,
+        "rotacao_z": 49.619,
+        "n_pontos": 25,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          -4.755,
+          2.663,
+          0.393
+        ],
+        "dimensoes": [
+          1.849,
+          0.952,
+          0.353
+        ],
+        "altura_topo": 1.981,
+        "rotacao_z": -130.55,
+        "n_pontos": 157,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          -3.992,
+          3.048,
+          0.067
+        ],
+        "dimensoes": [
+          1.132,
+          0.789,
+          0.202
+        ],
+        "altura_topo": 1.328,
+        "rotacao_z": 15.814,
+        "n_pontos": 83,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          3.944,
+          1.824,
+          -0.159
+        ],
+        "dimensoes": [
+          0.787,
+          0.521,
+          0.267
+        ],
+        "altura_topo": 0.841,
+        "rotacao_z": -90.059,
+        "n_pontos": 85,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          4.738,
+          1.559,
+          -0.092
+        ],
+        "dimensoes": [
+          0.782,
+          0.518,
+          0.258
+        ],
+        "altura_topo": 0.925,
+        "rotacao_z": 28.796,
+        "n_pontos": 53,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          -3.48,
+          0.691,
+          -0.346
+        ],
+        "dimensoes": [
+          0.456,
+          0.348,
+          0.063
+        ],
+        "altura_topo": 0.533,
+        "rotacao_z": -52.549,
+        "n_pontos": 22,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          5.369,
+          0.542,
+          -0.015
+        ],
+        "dimensoes": [
+          1.406,
+          0.938,
+          0.274
+        ],
+        "altura_topo": 1.351,
+        "rotacao_z": -54.736,
+        "n_pontos": 98,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "bancada",
+        "centro": [
+          2.576,
+          -3.626,
+          -0.075
+        ],
+        "dimensoes": [
+          0.974,
+          0.687,
+          0.268
+        ],
+        "altura_topo": 1.032,
+        "rotacao_z": 153.692,
+        "n_pontos": 81,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          1.083,
+          3.437,
+          -0.103
+        ],
+        "dimensoes": [
+          0.404,
+          0.332,
+          0.282
+        ],
+        "altura_topo": 0.752,
+        "rotacao_z": 15.349,
+        "n_pontos": 21,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          -5.875,
+          1.517,
+          -0.099
+        ],
+        "dimensoes": [
+          0.47,
+          0.447,
+          0.027
+        ],
+        "altura_topo": 0.771,
+        "rotacao_z": 43.125,
+        "n_pontos": 23,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          4.045,
+          2.345,
+          -0.152
+        ],
+        "dimensoes": [
+          0.559,
+          0.319,
+          0.086
+        ],
+        "altura_topo": 0.737,
+        "rotacao_z": 20.736,
+        "n_pontos": 29,
+        "box_oriented": true,
+        "scan_id": "000000"
+      },
+      {
+        "classe": "desconhecido",
+        "centro": [
+          -4.935,
+          2.296,
+          -0.295
+        ],
+        "dimensoes": [
+          0.408,
+          0.226,
+          0.14
+        ],
+        "altura_topo": 0.515,
+        "rotacao_z": 93.039,
+        "n_pontos": 17,
+        "box_oriented": true,
+        "scan_id": "000000"
+      }
+    ]
+  },
+  "diagnosticos": {
+    "000000": {
+      "metodo": "ransac_horizontal",
+      "plano": [
+        0.003799,
+        -0.003184,
+        0.999988,
+        0.588367
+      ],
+      "normal": [
+        0.003799,
+        -0.003184,
+        0.999988
+      ],
+      "inclinacao_deg": 0.284,
+      "z_chao": -0.5945,
+      "pontos_entrada": 5963,
+      "pontos_candidatos": 1789,
+      "pontos_chao": 787,
+      "pontos_objetos": 5176,
+      "ground_quantile": 0.3,
+      "max_ground_tilt_deg": 25.0,
+      "pontos_brutos": 6894,
+      "pontos_preprocessados": 5963,
+      "clusters": 20,
+      "cluster_mode": "3d",
+      "eps": 0.25,
+      "min_points": 20,
+      "outlier_neighbors": 12,
+      "outlier_std_ratio": 2.5,
+      "remove_outliers": true
+    }
+  },
+  "erros": [],
+  "cancelado": false,
+  "cancelled": false,
+  "total_scans": 1,
+  "processados": 1,
+  "inicio": 0,
+  "limite": null
+}

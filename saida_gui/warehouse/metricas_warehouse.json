@@ -1,0 +1,56 @@
+{
+  "ok": true,
+  "formato": "lidar2flexsim-metricas-v1",
+  "class_aware": false,
+  "class_map": null,
+  "thresholds": [
+    0.25,
+    0.5
+  ],
+  "por_threshold": {
+    "0.25": {
+      "scans_avaliados": 1,
+      "tp": 0,
+      "fp": 20,
+      "fn": 1,
+      "precisao": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "iou_medio_deteccoes_corretas": 0.0,
+      "erro_centro_medio_m": 0.0,
+      "erro_dimensao_medio_m": 0.0,
+      "erro_yaw_medio_rad": 0.0
+    },
+    "0.5": {
+      "scans_avaliados": 1,
+      "tp": 0,
+      "fp": 20,
+      "fn": 1,
+      "precisao": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "iou_medio_deteccoes_corretas": 0.0,
+      "erro_centro_medio_m": 0.0,
+      "erro_dimensao_medio_m": 0.0,
+      "erro_yaw_medio_rad": 0.0
+    }
+  },
+  "por_scan": {
+    "000000": {
+      "0.25": {
+        "tp": 0,
+        "fp": 20,
+        "fn": 1,
+        "ious": []
+      },
+      "0.5": {
+        "tp": 0,
+        "fp": 20,
+        "fn": 1,
+        "ious": []
+      }
+    }
+  },
+  "cancelado": false,
+  "cancelled": false
+}
