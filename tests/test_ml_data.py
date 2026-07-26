@@ -10,7 +10,6 @@ import pytest
 from ml import (
     OrientedBox,
     WarehousePointDataset,
-    WarehouseSegmentationDataset,
     assign_point_labels,
     class_name_to_index,
     load_bin,
@@ -163,7 +162,7 @@ def test_shared_preprocessing_reports_ground_and_keeps_shape() -> None:
     assert diagnostics["processed_points"] == len(processed)
 
 
-def test_legacy_training_dataset_uses_the_same_preprocessing_contract(tmp_path: Path) -> None:
+def test_training_dataset_uses_the_same_preprocessing_contract(tmp_path: Path) -> None:
     pytest.importorskip("torch")
     bin_dir = tmp_path / "bin"
     label_dir = tmp_path / "label"
@@ -180,10 +179,11 @@ def test_legacy_training_dataset_uses_the_same_preprocessing_contract(tmp_path: 
         "Box 0.5 0 1 1 1 1 0\n", encoding="utf-8"
     )
 
-    dataset = WarehouseSegmentationDataset(
-        [bin_dir / "000000.bin"],
+    dataset = WarehousePointDataset(
+        tmp_path,
         label_dir=label_dir,
         num_points=4,
+        return_tensors=True,
         preprocessing=PointPreprocessingConfig(remove_ground=True, plane_distance=0.01),
     )
     item = dataset[0]

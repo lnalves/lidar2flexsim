@@ -1,4 +1,4 @@
-"""Componentes de aprendizado para o pipeline LiDAR → FlexSim.
+"""Treinamento, inferência e avaliação PointNet++ para nuvens LiDAR.
 
 As importações deste pacote são leves e não exigem PyTorch. O dataset só
 carrega torch quando solicitado com ``return_tensors=True``.
@@ -23,10 +23,8 @@ from .data import (
     DEFAULT_BIN_FEATURES,
     DEFAULT_NUM_POINTS,
     PointSample,
-    WarehouseBox,
     WarehouseDataset,
     WarehousePointDataset,
-    WarehouseSegmentationDataset,
     WarehouseScan,
     assign_point_labels,
     carregar_bin,
@@ -73,13 +71,11 @@ __all__ = [
     "INDEX_TO_CLASS",
     "OrientedBox",
     "PointSample",
-    "WarehouseBox",
     "WAREHOUSE_CLASS_NAMES",
     "WAREHOUSE_CLASS_TO_INDEX",
     "WAREHOUSE_INDEX_TO_CLASS",
     "WarehouseDataset",
     "WarehousePointDataset",
-    "WarehouseSegmentationDataset",
     "WarehouseScan",
     "assign_point_labels",
     "box_corners",

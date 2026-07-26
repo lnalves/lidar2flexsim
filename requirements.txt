@@ -1,11 +1,4 @@
-# Runtime dependencies (validated with Python 3.11).
-# Keep the ranges bounded so a new major release does not silently change the
-# numerical results of the LiDAR pipeline.
+# PointNet++ runtime dependencies (Python 3.11).
 numpy>=1.26,<3
-open3d>=0.19,<0.20
-nicegui>=3,<4
-
-# Optional: enables NiceGUI's native desktop window backend.  The web UI also
-# works without it, so install this separately when desktop packaging is
-# needed:
-# pywebview>=5.4,<7
+torch>=2.2,<3
+pyyaml>=6,<7

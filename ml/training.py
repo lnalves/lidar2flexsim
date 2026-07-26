@@ -165,7 +165,7 @@ def train_model(
 ) -> dict[str, Any]:
     """Treina o modelo e retorna o histórico por época.
 
-    O ``DataLoader`` pode ser o adaptador ``WarehouseSegmentationDataset`` ou
+    O ``DataLoader`` pode usar ``WarehousePointDataset`` ou
     qualquer iterável que forneça ``points`` e ``labels``.
     """
 

@@ -1,6 +1,4 @@
-"""CLI opcional para treinar e inferir o PointNet++.
-
-Os comandos são mantidos separados da CLI geométrica existente:
+"""CLI para treinar, inferir e avaliar o PointNet++.
 
 ``python -m ml.cli train --dataset dados/warehouse --output checkpoints``
 ``python -m ml.cli infer --scan dados/warehouse/bin/000000.bin --checkpoint ...``
@@ -15,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import PointNet2Config, TrainingConfig, load_config
-from .data import WarehouseSegmentationDataset, temporal_split
+from .data import WarehousePointDataset, temporal_split
 from .benchmark import run_benchmark
 from .dependencies import require_torch
 from .inference import inferir_scan
@@ -114,21 +112,25 @@ def train_command(args: argparse.Namespace) -> int:
         raise ValueError("O treinamento requer pelo menos dois scans para o split temporal.")
     train_scans, validation_scans = temporal_split(scans, train_config.validation_fraction)
     class_weights = _class_weights(args.class_weights, model_config.num_classes)
-    train_dataset = WarehouseSegmentationDataset(
-        train_scans,
+    train_dataset = WarehousePointDataset(
+        dataset_root,
         label_dir=dataset_root / "label",
         class_names=model_config.class_names,
         num_points=model_config.input_points,
-        seed=train_config.seed,
+        scan_ids=[scan.stem for scan in train_scans],
+        random_seed=train_config.seed,
+        return_tensors=True,
         augment=True,
         preprocessing=model_config.preprocessing,
     )
-    validation_dataset = WarehouseSegmentationDataset(
-        validation_scans,
+    validation_dataset = WarehousePointDataset(
+        dataset_root,
         label_dir=dataset_root / "label",
         class_names=model_config.class_names,
         num_points=model_config.input_points,
-        seed=train_config.seed,
+        scan_ids=[scan.stem for scan in validation_scans],
+        random_seed=train_config.seed,
+        return_tensors=True,
         preprocessing=model_config.preprocessing,
     )
     if args.class_weights and args.class_weights.strip().casefold() == "auto":
@@ -174,8 +176,8 @@ def infer_command(args: argparse.Namespace) -> int:
         num_points=args.num_points,
         calibration=calibration,
     )
-    # Clusters are retained by the Python API for STL export, but printing all
-    # sampled points would make the command output unnecessarily large.
+    # Clusters remain available through the Python API; omit their raw points
+    # from terminal JSON to keep the output compact.
     output = dict(result)
     output.pop("clusters", None)
     print(json.dumps(output, ensure_ascii=False, default=lambda value: value.tolist() if hasattr(value, "tolist") else str(value)))

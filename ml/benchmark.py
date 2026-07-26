@@ -17,7 +17,7 @@ import numpy as np
 
 from .checkpoints import load_checkpoint
 from .config import PointNet2Config
-from .data import WarehouseSegmentationDataset
+from .data import WarehousePointDataset
 from .dependencies import require_torch
 from .models.pointnet2_seg import PointNet2Segmentation
 from .training import _confusion_from_batch, _metrics_from_confusion, _set_seed
@@ -57,7 +57,7 @@ def build_benchmark_manifest(
         test_count = 1
     train_end = len(ordered) - validation_count - test_count
     return {
-        "format": "lidar2flexsim-benchmark-v1",
+        "format": "pointnet2-benchmark-v1",
         "seed": int(seed),
         "split_strategy": "temporal_sorted_stem",
         "validation_fraction": float(validation_fraction),
@@ -79,7 +79,7 @@ def save_benchmark_manifest(path: str | Path, manifest: Mapping[str, Any]) -> Pa
 def load_benchmark_manifest(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser()
     value = json.loads(source.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping) or value.get("format") != "lidar2flexsim-benchmark-v1":
+    if not isinstance(value, Mapping) or value.get("format") != "pointnet2-benchmark-v1":
         raise ValueError(f"Manifesto de benchmark inválido: {source}")
     for key in ("train_scan_ids", "validation_scan_ids", "test_scan_ids"):
         if not isinstance(value.get(key), list):
@@ -117,12 +117,14 @@ def _segmentation_benchmark(
     for name, paths in (("train", train_paths), ("validation", validation_paths), ("test", test_paths)):
         if not paths:
             continue
-        dataset = WarehouseSegmentationDataset(
-            paths,
+        dataset = WarehousePointDataset(
+            label_dir.parent,
             label_dir=label_dir,
             class_names=config.class_names,
             num_points=config.input_points,
-            seed=seed,
+            scan_ids=[path.stem for path in paths],
+            random_seed=seed,
+            return_tensors=True,
             preprocessing=config.preprocessing,
         )
         confusion = torch.zeros((config.num_classes, config.num_classes), dtype=torch.long)
@@ -146,7 +148,7 @@ def _box_benchmark(
     *,
     device: str,
 ) -> dict[str, Any]:
-    from avaliar_deteccoes import predicao_para_caixa, resumir_scans
+    from .evaluation import predicao_para_caixa, resumir_scans
     from .inference import inferir_scan
 
     predictions: dict[str, list[dict[str, Any]]] = {}

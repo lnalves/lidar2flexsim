@@ -1,16 +1,14 @@
-"""Avalia caixas 3D previstas contra os labels do Warehouse LiDAR.
+"""Avalia caixas 3D previstas pelo PointNet++ contra o Warehouse LiDAR.
 
-Uso com o processamento em lote:
+Uso com predições salvas:
 
-    python avaliar_deteccoes.py \
-        --predicoes saida/predicoes_warehouse.json \
+    python -m ml.evaluation \
+        --predicoes predictions.json \
         --labels dados/warehouse/label \
-        --saida saida/metricas_warehouse.json
+        --saida benchmark/metricas_warehouse.json
 
-Por padrão, a avaliação é geométrica (independente da classe), pois as
-heurísticas atuais do projeto produzem ``operador/esteira/bancada`` e o
-dataset usa outra ontologia. Use ``--class-aware`` após configurar um mapa de
-classes compatível.
+Por padrão, a avaliação é geométrica. Use ``--class-aware`` para também
+validar as classes aprendidas pelo modelo.
 """
 
 from __future__ import annotations
@@ -53,13 +51,12 @@ def predicao_para_caixa(predicao: dict) -> dict:
         raise ValueError("Predição sem 'dimensoes' [dx, dy, dz].")
     if not isinstance(centro, list) or len(centro) != 3:
         raise ValueError("Predição sem 'centro' [x, y, z].")
-    # O exportador do pipeline usa graus para compatibilidade com o FlexSim.
-    yaw_graus = float(predicao.get("rotacao_z", 0.0))
+    yaw = float(predicao.get("yaw_rad", predicao.get("rotacao", 0.0)))
     return {
         "classe": str(predicao.get("classe", "desconhecido")),
         "centro": [float(v) for v in centro],
         "dimensoes": [float(v) for v in dimensoes],
-        "yaw_rad": math.radians(yaw_graus),
+        "yaw_rad": yaw,
     }
 
 
@@ -69,11 +66,20 @@ def carregar_predicoes(caminho: Path, scan_id: str | None) -> dict[str, list[dic
 
     if isinstance(documento, list):
         if scan_id is None:
-            raise ValueError("Use --scan-id ao avaliar um layout.json sem campo 'scans'.")
+            raise ValueError("Use --scan-id ao avaliar uma lista de predições.")
         return {scan_id: [predicao_para_caixa(item) for item in documento]}
 
     if not isinstance(documento, dict):
         raise ValueError("JSON de predições deve ser uma lista ou um objeto com 'scans'.")
+    if "predictions" in documento:
+        if scan_id is None:
+            raise ValueError(
+                "Use --scan-id ao avaliar a saída de inferência de um único scan."
+            )
+        values = documento["predictions"]
+        if not isinstance(values, list):
+            raise ValueError("Campo 'predictions' deve ser uma lista.")
+        return {scan_id: [predicao_para_caixa(item) for item in values]}
     scans = documento.get("scans", documento)
     if not isinstance(scans, dict):
         raise ValueError("Campo 'scans' deve ser um objeto scan_id -> predições.")
@@ -262,13 +268,15 @@ def resumir_scans(predicoes: dict[str, list[dict]], labels_dir: Path,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Avalia detecções 3D do pipeline")
+    parser = argparse.ArgumentParser(description="Avalia detecções 3D do PointNet++")
     parser.add_argument("--predicoes", type=Path, required=True,
-                        help="layout.json ou JSON produzido por processar_warehouse.py")
+                        help="JSON de predições produzido pelo PointNet++")
     parser.add_argument("--labels", type=Path, required=True,
                         help="Pasta label/ ou arquivo .txt de um scan")
-    parser.add_argument("--scan-id",
-                        help="ID quando --predicoes é um layout.json de um único scan")
+    parser.add_argument(
+        "--scan-id",
+        help="ID quando --predicoes contém a saída de um único scan",
+    )
     parser.add_argument("--iou-thresholds", type=float, nargs="+", default=[0.25, 0.5],
                         help="Limiares de IoU 3D a calcular")
     parser.add_argument("--class-aware", action="store_true",
@@ -276,7 +284,7 @@ def main() -> None:
     parser.add_argument("--class-map", type=Path,
                         help="JSON opcional: classe prevista -> classe do dataset")
     parser.add_argument("--saida", type=Path,
-                        default=Path("saida/metricas_warehouse.json"),
+                        default=Path("benchmark/metricas_warehouse.json"),
                         help="Arquivo JSON de métricas")
     args = parser.parse_args()
 
@@ -297,7 +305,7 @@ def main() -> None:
     if not labels_dir.exists() or not labels_dir.is_dir():
         raise FileNotFoundError(f"Pasta de labels não encontrada: {labels_dir}")
     resultado = {
-        "formato": "lidar2flexsim-metricas-v1",
+        "formato": "pointnet2-metricas-v1",
         "class_aware": args.class_aware,
         "class_map": mapa_classes,
         **resumir_scans(predicoes, labels_dir, args.iou_thresholds, mapa_classes),

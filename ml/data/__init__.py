@@ -1,9 +1,4 @@
-"""Leitura e rotulagem das amostras do Warehouse LiDAR Dataset.
-
-O pacote mantém os adaptadores legados em :mod:`warehouse` e expõe a API
-PointNet++ em :mod:`pointnet`. Nenhum dos dois exige PyTorch para ser
-importado; o dataset genérico só importa o framework quando solicitado.
-"""
+"""Leitura e rotulagem das amostras do Warehouse LiDAR para PointNet++."""
 
 from .pointnet import (
     DEFAULT_BIN_FEATURES,
@@ -25,14 +20,6 @@ from .pointnet import (
     read_label_file,
     rotular_pontos,
     sample_fixed_points,
-)
-
-from .warehouse import (
-    WarehouseBox,
-    WarehouseSegmentationDataset,
-    load_bin_points,
-    load_label_boxes,
-    points_to_segmentation_labels,
     temporal_split,
 )
 from ..preprocessing import PointPreprocessingConfig, preprocess_points
@@ -42,22 +29,17 @@ __all__ = [
     "DEFAULT_NUM_POINTS",
     "PointSample",
     "PointPreprocessingConfig",
-    "WarehouseBox",
     "WarehouseDataset",
     "WarehousePointDataset",
     "WarehouseScan",
-    "WarehouseSegmentationDataset",
     "assign_point_labels",
     "carregar_bin",
     "label_points",
     "ler_labels",
     "load_bin",
-    "load_bin_points",
-    "load_label_boxes",
     "load_labels",
     "load_scan",
     "load_warehouse_bin",
-    "points_to_segmentation_labels",
     "prepare_point_sample",
     "prepare_sample",
     "preprocess_points",

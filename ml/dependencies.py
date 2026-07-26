@@ -1,9 +1,4 @@
-"""Optional dependency detection used by :mod:`ml`.
-
-Importing ``torch`` at module import time is intentionally guarded.  This is
-important for the NiceGUI application, where the geometry-only workflow must
-remain usable on machines that do not have a CUDA/PyTorch installation.
-"""
+"""Dependency detection used by :mod:`ml` with actionable error messages."""
 
 from __future__ import annotations
 
@@ -11,7 +6,7 @@ from typing import Any
 
 
 class MissingOptionalDependency(RuntimeError):
-    """Raised when an optional machine-learning dependency is requested."""
+    """Raised when a machine-learning dependency is unavailable."""
 
     def __init__(self, dependency: str, feature: str | None = None) -> None:
         self.dependency = dependency

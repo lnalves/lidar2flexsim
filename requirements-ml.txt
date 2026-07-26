@@ -1,5 +1,0 @@
-# Optional PointNet++ backend.  The geometry/UI installation remains light;
-# install this file only on the machine used for training or neural inference.
--r requirements.txt
-torch>=2.2,<3
-pyyaml>=6,<7

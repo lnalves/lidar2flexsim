@@ -32,16 +32,13 @@ dist/
 
 # Datasets and generated artefacts (usually several GB)
 dados/
-saida/
 outputs/
 runs/
+benchmark/
+checkpoints/
 *.bin
-*.pcd
-*.las
-*.laz
 
 # Local application state/logs
-.nicegui/
 *.log
 *.tmp
 *.bak

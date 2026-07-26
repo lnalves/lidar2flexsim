@@ -1,4 +1,4 @@
-"""Casos de borda do avaliador que não requerem Open3D."""
+"""Casos de borda do avaliador neural de caixas 3D."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from avaliar_deteccoes import (
+from ml.evaluation import (
     carregar_predicoes,
     erro_geometrico,
     ler_labels,
@@ -41,11 +41,11 @@ def test_ler_labels_rejeita_numero_de_campos_incorreto(tmp_path: Path) -> None:
         ler_labels(arquivo)
 
 
-def test_carregar_predicoes_aceita_layout_de_um_scan(tmp_path: Path) -> None:
-    arquivo = tmp_path / "layout.json"
+def test_carregar_predicoes_aceita_lista_de_um_scan(tmp_path: Path) -> None:
+    arquivo = tmp_path / "predictions.json"
     arquivo.write_text(
         '[{"classe":"Box","centro":[0,0,1],'
-        '"dimensoes":[2,1,2],"rotacao_z":90}]',
+        '"dimensoes":[2,1,2],"rotacao":1.57079632679}]',
         encoding="utf-8",
     )
 
@@ -53,6 +53,19 @@ def test_carregar_predicoes_aceita_layout_de_um_scan(tmp_path: Path) -> None:
 
     assert scans["000001"][0]["classe"] == "Box"
     assert scans["000001"][0]["yaw_rad"] == pytest.approx(1.57079632679)
+
+
+def test_carregar_predicoes_aceita_saida_de_inferencia(tmp_path: Path) -> None:
+    arquivo = tmp_path / "inference.json"
+    arquivo.write_text(
+        '{"predictions":[{"classe":"Box","centro":[0,0,1],'
+        '"dimensoes":[2,1,2],"rotacao":0.25}],"diagnostics":{}}',
+        encoding="utf-8",
+    )
+
+    scans = carregar_predicoes(arquivo, "000002")
+
+    assert scans["000002"][0]["yaw_rad"] == pytest.approx(0.25)
 
 
 def test_resumir_scans_calcula_tp_fp_fn_e_erros(tmp_path: Path) -> None:
@@ -68,7 +81,7 @@ def test_resumir_scans_calcula_tp_fp_fn_e_erros(tmp_path: Path) -> None:
                     "classe": "Box",
                     "centro": [0, 0, 1],
                     "dimensoes": [2, 1, 2],
-                    "rotacao_z": 0,
+                    "rotacao": 0,
                 }
             )
         ]

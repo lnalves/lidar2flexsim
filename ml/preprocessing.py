@@ -1,7 +1,7 @@
 """Pré-processamento compartilhado entre treino, validação e inferência.
 
-O módulo não depende de PyTorch nem Open3D. Isso permite que a preparação dos
-dados seja exatamente a mesma nos datasets, na inferência e nos testes leves.
+O módulo implementa as operações com NumPy para que a preparação seja
+exatamente a mesma nos datasets, na inferência e nos testes.
 """
 
 from __future__ import annotations

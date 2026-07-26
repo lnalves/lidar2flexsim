@@ -1,9 +1,8 @@
 """Geometria de caixas 3D orientadas usadas pelo Warehouse LiDAR.
 
 O dataset fornece caixas no formato ``centro + dimensões + yaw``.  Este
-módulo mantém a geometria independente de Open3D e PyTorch para que a
-preparação dos dados possa ser usada tanto no treino quanto nos testes leves
-do projeto.
+módulo implementa a geometria com NumPy para ser compartilhado pelo treino,
+pela inferência e pelos testes.
 """
 
 from __future__ import annotations

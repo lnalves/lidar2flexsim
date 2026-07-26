@@ -1,3 +1,0 @@
-# Dependências adicionais para abrir a interface NiceGUI em uma janela nativa.
--r requirements.txt
-pywebview>=5.4,<7

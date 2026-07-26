@@ -1,4 +1,4 @@
-"""Inferência PointNet++ e conversão de labels em caixas para o FlexSim."""
+"""Inferência PointNet++ e conversão de labels por ponto em caixas 3D."""
 
 from __future__ import annotations
 
@@ -310,8 +310,8 @@ def inferir_scan(
 
     A segmentação PointNet++ é ponto a ponto; esta função agrupa os pontos de
     cada classe em componentes espaciais e ajusta uma caixa orientada. O
-    formato das previsões usa nomes em português já consumidos pelo exportador
-    existente: ``classe``, ``centro``, ``dimensoes`` e ``rotacao``.
+    formato das previsões contém ``classe``, ``centro``, ``dimensoes`` e
+    ``rotacao`` em radianos.
     """
 
     threshold = float(score_threshold)
@@ -343,9 +343,7 @@ def inferir_scan(
     labels = np.asarray(result["labels"])
     confidence = np.asarray(result["confidence"])
     names = tuple(class_names or result["class_names"] or DEFAULT_CLASS_NAMES)
-    # Keep the point clusters alongside each prediction.  The service layer
-    # uses them to generate STL files; the layout-only API can simply ignore
-    # this field.
+    # Keep point clusters alongside predictions for calibration and analysis.
     records: list[tuple[dict[str, Any], np.ndarray]] = []
     class_counts: dict[str, int] = {}
     for class_id in range(1, len(names)):
@@ -367,12 +365,7 @@ def inferir_scan(
                     "score": score,
                     "centro": center.tolist(),
                     "dimensoes": dimensions.tolist(),
-                    # ``rotacao_z``/``n_pontos`` are the canonical keys used
-                    # by lidar2flexsim.py; the radian/count aliases make the
-                    # neural API convenient for notebooks as well.
-                    "rotacao_z": math.degrees(float(yaw)),
                     "rotacao": float(yaw),
-                    "n_pontos": int(len(cluster_points)),
                     "num_pontos": int(len(cluster_points)),
                 },
                 np.ascontiguousarray(cluster_points, dtype=np.float32),
@@ -398,23 +391,8 @@ def inferir_scan(
             "calibration": calibration_diagnostics,
         }
     )
-    ground = result["diagnostics"].get("ground", {})
-    ground_inliers = int(ground.get("inliers", 0) or 0) if isinstance(ground, Mapping) else 0
-    diagnostics.update(
-        {
-            # Canonical names shared with the geometric service/UI.
-            "pontos_brutos": int(result["diagnostics"].get("input_points", 0)),
-            "pontos_preprocessados": int(result["diagnostics"].get("voxel_points", 0)),
-            "pontos_chao": ground_inliers,
-            "pontos_objetos": int(result["diagnostics"].get("processed_points", 0)),
-            "metodo": "pointnet2",
-            "z_chao": ground.get("height") if isinstance(ground, Mapping) else None,
-            "inclinacao_deg": ground.get("tilt_deg") if isinstance(ground, Mapping) else None,
-        }
-    )
     return {
         "predictions": predictions,
-        "predicoes": predictions,
         "clusters": clusters,
         "diagnostics": diagnostics,
     }

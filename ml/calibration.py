@@ -112,7 +112,7 @@ def calibrate_predictions(
         if score < min_score:
             removed["score"] += 1
             continue
-        point_count = int(item.get("n_pontos", item.get("num_pontos", 0)) or 0)
+        point_count = int(item.get("num_pontos", 0) or 0)
         if point_count < max(settings.min_points, int(settings.per_class_min_points.get(class_name, 1))):
             removed["points"] += 1
             continue

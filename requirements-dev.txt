@@ -1,4 +1,4 @@
-# Development and test dependencies.
+# Development and test dependencies for the PointNet++ package.
 -r requirements.txt
 pytest>=8,<9
 pytest-asyncio>=0.24,<2

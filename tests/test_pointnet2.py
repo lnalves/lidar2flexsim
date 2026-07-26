@@ -1,4 +1,4 @@
-"""Smoke tests do PointNet++ sem tornar PyTorch obrigatório."""
+"""Testes de configuração, treino e inferência PointNet++."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 
 import ml
 from ml.config import PointNet2Config, TrainingConfig, load_config
-from ml.data import load_label_boxes, points_to_segmentation_labels
+from ml.data import assign_point_labels, read_label_file
 from ml.preprocessing import PointPreprocessingConfig
 
 
@@ -24,9 +24,9 @@ def test_config_and_box_rasterization() -> None:
     model, training = load_config("ml/configs/pointnet2_seg.yaml")
     assert model.class_names[-1] == "ForkLift"
     assert training.epochs >= 1
-    box = load_label_boxes("dados/warehouse/label/000000.txt")[0]
+    box = read_label_file("dados/warehouse/label/000000.txt")[0]
     points = np.asarray([box.center, (100.0, 100.0, 100.0)], dtype=np.float32)
-    labels = points_to_segmentation_labels(points, [box])
+    labels = assign_point_labels(points, [box])
     assert labels.shape == (2,)
     assert labels[0] == model.class_names.index("ForkLift")
     assert labels[1] == 0
@@ -302,9 +302,9 @@ def test_prediction_calibration_filters_and_suppresses_duplicates() -> None:
     from ml.calibration import calibrate_predictions
 
     predictions = [
-        {"classe": "Box", "score": 0.95, "n_pontos": 20, "centro": [0, 0, 0], "dimensoes": [2, 2, 2]},
-        {"classe": "Box", "score": 0.80, "n_pontos": 20, "centro": [0.1, 0, 0], "dimensoes": [2, 2, 2]},
-        {"classe": "Box", "score": 0.99, "n_pontos": 2, "centro": [5, 0, 0], "dimensoes": [1, 1, 1]},
+        {"classe": "Box", "score": 0.95, "num_pontos": 20, "centro": [0, 0, 0], "dimensoes": [2, 2, 2]},
+        {"classe": "Box", "score": 0.80, "num_pontos": 20, "centro": [0.1, 0, 0], "dimensoes": [2, 2, 2]},
+        {"classe": "Box", "score": 0.99, "num_pontos": 2, "centro": [5, 0, 0], "dimensoes": [1, 1, 1]},
     ]
     kept, clusters, diagnostics = calibrate_predictions(
         predictions,

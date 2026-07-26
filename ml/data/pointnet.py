@@ -340,6 +340,8 @@ class WarehousePointDataset:
         as_torch: bool | None = None,
         include_boxes: bool = False,
         strict_classes: bool = True,
+        class_names: Sequence[str] | None = None,
+        augment: bool = False,
         preprocessing: PointPreprocessingConfig | Mapping[str, Any] | None = None,
     ) -> None:
         source = Path(root).expanduser()
@@ -356,6 +358,8 @@ class WarehousePointDataset:
         self.return_tensors = bool(return_tensors if as_torch is None else as_torch)
         self.include_boxes = bool(include_boxes)
         self.strict_classes = bool(strict_classes)
+        self.class_names = tuple(class_names or WAREHOUSE_CLASS_TO_INDEX)
+        self.augment = bool(augment)
         self.preprocessing = PointPreprocessingConfig.from_mapping(preprocessing)
         files = sorted(self.bin_dir.glob("*.bin"))
         if scan_ids is not None:
@@ -381,7 +385,20 @@ class WarehousePointDataset:
             label_path = None
         scan = load_scan(path, label_path, num_features=self.num_features, strict_classes=self.strict_classes)
         points, _ = preprocess_points(scan.points, self.preprocessing)
-        labels = assign_point_labels(points, scan.boxes) if scan.boxes else np.zeros(len(points), dtype=np.int64)
+        class_mapping = {
+            normalize_class_name(name, strict=False): class_id
+            for class_id, name in enumerate(self.class_names)
+        }
+        labels = (
+            assign_point_labels(
+                points,
+                scan.boxes,
+                class_mapping=class_mapping,
+                strict_classes=self.strict_classes,
+            )
+            if scan.boxes
+            else np.zeros(len(points), dtype=np.int64)
+        )
         seed = None if self.random_seed is None else int(self.random_seed) + int(index)
         sample = prepare_point_sample(
             points,
@@ -390,8 +407,19 @@ class WarehousePointDataset:
             rng=seed,
             preserve_foreground=self.preserve_foreground,
         )
+        sampled_points = sample.points.copy()
+        if self.augment and len(sampled_points):
+            random = _generator(seed)
+            angle = float(random.uniform(-np.pi, np.pi))
+            cosine, sine = np.cos(angle), np.sin(angle)
+            xy = sampled_points[:, :2].copy()
+            sampled_points[:, 0] = cosine * xy[:, 0] - sine * xy[:, 1]
+            sampled_points[:, 1] = sine * xy[:, 0] + cosine * xy[:, 1]
+            sampled_points[:, :3] += random.normal(
+                0, 0.005, size=sampled_points[:, :3].shape
+            ).astype(np.float32)
         result: dict[str, Any] = {
-            "points": sample.points,
+            "points": sampled_points,
             "labels": sample.labels,
             "valid_mask": sample.valid_mask,
             "indices": sample.indices,
@@ -401,11 +429,30 @@ class WarehousePointDataset:
             result["boxes"] = scan.boxes
         if self.return_tensors:
             torch = _require_torch()
-            result["points"] = torch.from_numpy(sample.points)
-            result["labels"] = torch.from_numpy(sample.labels if sample.labels is not None else np.zeros(len(sample.points), dtype=np.int64))
+            result["points"] = torch.from_numpy(sampled_points)
+            result["labels"] = torch.from_numpy(
+                sample.labels
+                if sample.labels is not None
+                else np.zeros(len(sampled_points), dtype=np.int64)
+            )
             result["valid_mask"] = torch.from_numpy(sample.valid_mask)
             result["indices"] = torch.from_numpy(sample.indices)
         return result
+
+
+def temporal_split(
+    scans: Sequence[str | Path], validation_fraction: float = 0.2,
+) -> tuple[list[Path], list[Path]]:
+    """Divide scans ordenados em blocos temporais de treino e validação."""
+
+    fraction = float(validation_fraction)
+    if not 0 < fraction < 1:
+        raise ValueError("validation_fraction deve estar entre 0 e 1")
+    ordered = sorted((Path(scan) for scan in scans), key=lambda item: item.stem)
+    if len(ordered) < 2:
+        return ordered, []
+    count = min(len(ordered) - 1, max(1, int(round(len(ordered) * fraction))))
+    return ordered[:-count], ordered[-count:]
 
 
 WarehouseDataset = WarehousePointDataset
@@ -431,4 +478,5 @@ __all__ = [
     "read_label_file",
     "rotular_pontos",
     "sample_fixed_points",
+    "temporal_split",
 ]
