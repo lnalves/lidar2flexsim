@@ -21,6 +21,7 @@ checkpoints seguros, retomada de treinamento e benchmark reproduzível.
 ```text
 ml/
 ├── cli.py                    # comandos train, infer e benchmark
+├── gui.py                    # validação e execução usada pela interface
 ├── models/pointnet2_seg.py   # arquitetura PointNet++
 ├── data/pointnet.py          # leitura, labels e dataset PyTorch
 ├── preprocessing.py          # voxel, piso e outliers em NumPy
@@ -30,6 +31,8 @@ ml/
 ├── benchmark.py              # splits e relatórios reproduzíveis
 └── configs/pointnet2_seg.yaml
 ```
+
+`app.py` fornece a interface gráfica sobre esses mesmos comandos.
 
 ## Instalação
 
@@ -70,6 +73,33 @@ classe cx cy cz dx dy dz yaw
 ```
 
 As dimensões são dadas em metros e `yaw` em radianos.
+
+## Interface gráfica
+
+```bash
+python app.py
+```
+
+A interface abre em `http://localhost:8080`. O fluxo principal pede apenas:
+
+1. a pasta do Warehouse Dataset;
+2. um scan;
+3. um checkpoint;
+4. o clique em **Analisar scan**.
+
+Os parâmetros técnicos ficam recolhidos em **Ajustes avançados**. Treinamento
+por presets, progresso, cancelamento e benchmark continuam disponíveis em
+**Ferramentas do modelo**, sem competir com a análise principal.
+
+Para abrir em uma janela nativa, instale `pywebview` e execute:
+
+```bash
+python -m pip install "pywebview>=5.4,<7"
+python app.py --native
+```
+
+No modo navegador, o dataset padrão `dados/warehouse` é detectado
+automaticamente. Também é possível informar outro caminho local e validá-lo.
 
 ## Treinamento
 
