@@ -228,6 +228,11 @@ def train_model(
 
     for epoch in range(start_epoch, train_config.epochs + 1):
         model.train()
+        # Datasets que suportam aumento de dados precisam saber a época para
+        # variar as transformações; loaders simples (listas, smoke test) não.
+        set_epoch = getattr(getattr(train_loader, "dataset", None), "set_epoch", None)
+        if callable(set_epoch):
+            set_epoch(epoch)
         losses: list[float] = []
         train_confusion = torch.zeros(
             (model.config.num_classes, model.config.num_classes), dtype=torch.long

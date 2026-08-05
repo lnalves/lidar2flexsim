@@ -116,6 +116,11 @@ Cada execução cria uma pasta própria com `config.json`, `metadata.json`,
 `history.jsonl` e `checkpoints/`. `best.pt` representa a melhor validação e
 `last.pt` o estado mais recente.
 
+O split é temporal e tem três blocos: treino, validação e um bloco final de
+teste (`--test-fraction`, padrão 0,1) que nenhum loader consome. Os três ficam
+registrados em `metadata.json`, e é isso que permite ao benchmark reproduzir
+exatamente o que o checkpoint viu.
+
 Para uma validação rápida do fluxo:
 
 ```bash
@@ -123,17 +128,21 @@ python -m ml.cli train \
   --dataset dados/warehouse \
   --config ml/configs/pointnet2_seg.yaml \
   --output runs \
-  --run-name quick-12x1024 \
+  --run-name quick-12 \
   --max-scans 12 \
-  --input-points 1024 \
   --epochs 2 \
   --batch-size 2 \
   --class-weights auto \
   --device cpu
 ```
 
-`--max-scans` seleciona amostras ao longo da sequência e o split permanece
-temporal, evitando vazamento entre frames consecutivos.
+`--max-scans` amostra a sequência com espaçamento uniforme, e não os primeiros
+scans: um recorte contíguo cobre poucos segundos de gravação e deixa a maioria
+das classes de fora.
+
+O padrão de `input_points` é 8192. Os scans do Warehouse têm entre 3,5k e 9k
+pontos, com menos de 7% deles dentro de caixas; amostrar menos que isso descarta
+justamente os pontos de objeto que o segmentador precisa aprender.
 
 Para retomar uma execução:
 
@@ -180,16 +189,26 @@ python -m ml.cli infer \
 ```bash
 python -m ml.cli benchmark \
   --dataset dados/warehouse \
-  --checkpoint runs/.../checkpoints/best.pt \
-  --max-scans 12 \
-  --output benchmark/warehouse-12
+  --checkpoint runs/exemplo/checkpoints/best.pt \
+  --from-run runs/exemplo \
+  --output benchmark/exemplo
 ```
+
+`--from-run` reaproveita o split gravado pela execução. Sem ele o benchmark
+monta o próprio recorte do dataset, e aí os blocos rotulados como treino e
+validação não são os que o checkpoint realmente usou. A interface passa a flag
+sozinha quando o checkpoint escolhido pertence a uma execução.
 
 O benchmark grava:
 
 - `manifest.json`: IDs congelados de treino, validação e teste;
 - `benchmark.json`: métricas de segmentação, IoU de caixas, tempo, ambiente e
   dados do checkpoint.
+
+O formato de predição (`classe`, `class_id`, `score`, `centro`, `dimensoes`,
+`rotacao`, `num_pontos`) é o contrato do exportador para o FlexSim e não deve
+mudar sem necessidade. O bloco de teste reservado pelo treino é o conjunto
+natural para validar esse exportador quando ele existir.
 
 Para avaliar um JSON de predições separadamente:
 

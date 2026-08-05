@@ -17,7 +17,7 @@ import numpy as np
 
 from .checkpoints import load_checkpoint
 from .config import PointNet2Config
-from .data import WarehousePointDataset
+from .data import WarehousePointDataset, select_scan_subset, temporal_three_way_split
 from .dependencies import require_torch
 from .models.pointnet2_seg import PointNet2Segmentation
 from .training import _confusion_from_batch, _metrics_from_confusion, _set_seed
@@ -33,6 +33,12 @@ def _scan_files(dataset: str | Path) -> tuple[Path, Path, list[Path]]:
     return dataset_root, dataset_root / "label", scans
 
 
+MANIFEST_FORMAT = "pointnet2-benchmark-v1"
+# O refactor do pipeline renomeou o formato; manifestos gravados antes disso
+# continuam válidos e descrevem exatamente os mesmos campos.
+LEGACY_MANIFEST_FORMATS = ("lidar2flexsim-benchmark-v1",)
+
+
 def build_benchmark_manifest(
     scans: Sequence[str | Path],
     *,
@@ -41,31 +47,78 @@ def build_benchmark_manifest(
     seed: int = 42,
     max_scans: int | None = None,
 ) -> dict[str, Any]:
-    """Cria splits temporais determinísticos e serializáveis."""
+    """Cria splits temporais determinísticos e serializáveis.
+
+    ``max_scans`` amostra a sequência inteira com espaçamento uniforme, e não os
+    primeiros scans: um recorte contíguo cobre poucos segundos de gravação e
+    deixa a maior parte das classes sem nenhuma ocorrência para medir.
+    """
 
     ordered = sorted((Path(scan) for scan in scans), key=lambda path: path.stem)
     if max_scans is not None:
         if int(max_scans) < 3:
             raise ValueError("max_scans deve permitir pelo menos treino, validação e teste")
-        ordered = ordered[: int(max_scans)]
+        ordered = select_scan_subset(ordered, max_scans)
     if len(ordered) < 3:
         raise ValueError("O benchmark requer pelo menos três scans")
-    validation_count = max(1, int(round(len(ordered) * float(validation_fraction))))
-    test_count = max(1, int(round(len(ordered) * float(test_fraction))))
-    if validation_count + test_count >= len(ordered):
-        validation_count = 1
-        test_count = 1
-    train_end = len(ordered) - validation_count - test_count
+    train, validation, test = temporal_three_way_split(
+        ordered, validation_fraction, test_fraction
+    )
     return {
-        "format": "pointnet2-benchmark-v1",
+        "format": MANIFEST_FORMAT,
         "seed": int(seed),
         "split_strategy": "temporal_sorted_stem",
+        "selection_strategy": "uniform_over_sequence",
+        "max_scans": int(max_scans) if max_scans is not None else None,
         "validation_fraction": float(validation_fraction),
         "test_fraction": float(test_fraction),
         "all_scan_ids": [path.stem for path in ordered],
-        "train_scan_ids": [path.stem for path in ordered[:train_end]],
-        "validation_scan_ids": [path.stem for path in ordered[train_end:train_end + validation_count]],
-        "test_scan_ids": [path.stem for path in ordered[train_end + validation_count:]],
+        "train_scan_ids": [path.stem for path in train],
+        "validation_scan_ids": [path.stem for path in validation],
+        "test_scan_ids": [path.stem for path in test],
+    }
+
+
+def manifest_from_run(run_dir: str | Path, *, seed: int = 42) -> dict[str, Any]:
+    """Reconstrói o manifesto a partir do split real de uma execução.
+
+    Sem isso o benchmark inventa o próprio split e mede o checkpoint contra
+    scans que ele pode ter visto no treino — inclusive rotulando de "train"
+    um conjunto que nunca foi o de treino do modelo.
+    """
+
+    source = Path(run_dir).expanduser()
+    if source.name == "checkpoints":
+        source = source.parent
+    metadata_path = source / "metadata.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Execução sem metadata.json: {metadata_path}")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, Mapping):
+        raise ValueError(f"metadata.json inválido: {metadata_path}")
+    keys = ("train_scan_ids", "validation_scan_ids", "test_scan_ids")
+    missing = [key for key in keys if not isinstance(metadata.get(key), list)]
+    if missing:
+        raise ValueError(
+            f"{metadata_path} não registra os splits: " + ", ".join(missing)
+        )
+    splits = {key: [str(item) for item in metadata[key]] for key in keys}
+    all_ids = metadata.get("all_scan_ids")
+    if not isinstance(all_ids, list):
+        all_ids = sorted({scan_id for ids in splits.values() for scan_id in ids})
+    return {
+        "format": MANIFEST_FORMAT,
+        "seed": int(seed),
+        "split_strategy": str(metadata.get("split_strategy", "temporal_sorted_stem")),
+        "selection_strategy": str(
+            metadata.get("selection_strategy", "uniform_over_sequence")
+        ),
+        "max_scans": metadata.get("max_scans"),
+        "validation_fraction": metadata.get("validation_fraction"),
+        "test_fraction": metadata.get("test_fraction"),
+        "source_run": str(source),
+        "all_scan_ids": [str(item) for item in all_ids],
+        **splits,
     }
 
 
@@ -79,12 +132,15 @@ def save_benchmark_manifest(path: str | Path, manifest: Mapping[str, Any]) -> Pa
 def load_benchmark_manifest(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser()
     value = json.loads(source.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping) or value.get("format") != "pointnet2-benchmark-v1":
+    accepted = (MANIFEST_FORMAT, *LEGACY_MANIFEST_FORMATS)
+    if not isinstance(value, Mapping) or value.get("format") not in accepted:
         raise ValueError(f"Manifesto de benchmark inválido: {source}")
     for key in ("train_scan_ids", "validation_scan_ids", "test_scan_ids"):
         if not isinstance(value.get(key), list):
             raise ValueError(f"Manifesto sem split válido: {key}")
-    return dict(value)
+    result = dict(value)
+    result["format"] = MANIFEST_FORMAT
+    return result
 
 
 def _paths_for_ids(scans: Sequence[Path], ids: Sequence[str]) -> list[Path]:
@@ -170,18 +226,28 @@ def run_benchmark(
     *,
     checkpoint: str | Path | None = None,
     manifest: str | Path | Mapping[str, Any] | None = None,
+    from_run: str | Path | None = None,
     output_dir: str | Path | None = None,
     device: str = "cpu",
     seed: int = 42,
     max_scans: int | None = None,
 ) -> dict[str, Any]:
-    """Executa e opcionalmente salva um benchmark completo."""
+    """Executa e opcionalmente salva um benchmark completo.
+
+    ``from_run`` reaproveita o split gravado por uma execução de treino, que é a
+    única forma de as métricas de treino, validação e teste corresponderem ao
+    que o checkpoint realmente viu.
+    """
 
     torch = require_torch("executar benchmark PointNet++") if checkpoint else None
     if torch is not None:
         _set_seed(seed, torch)
     dataset_root, label_dir, scans = _scan_files(dataset)
-    if manifest is None:
+    if manifest is not None and from_run is not None:
+        raise ValueError("Use --manifest ou --from-run, não os dois")
+    if from_run is not None:
+        manifest_value = manifest_from_run(from_run, seed=seed)
+    elif manifest is None:
         manifest_value = build_benchmark_manifest(scans, seed=seed, max_scans=max_scans)
     elif isinstance(manifest, Mapping):
         manifest_value = dict(manifest)
@@ -229,8 +295,11 @@ def run_benchmark(
 
 
 __all__ = [
+    "LEGACY_MANIFEST_FORMATS",
+    "MANIFEST_FORMAT",
     "build_benchmark_manifest",
     "load_benchmark_manifest",
+    "manifest_from_run",
     "run_benchmark",
     "save_benchmark_manifest",
 ]

@@ -73,19 +73,35 @@ def _prepare_points(points: np.ndarray, count: int, seed: int = 0) -> tuple[np.n
     return sample.points, sample.indices
 
 
+_NEIGHBOR_OFFSETS = np.array(
+    [(dx, dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)],
+    dtype=np.int64,
+)
+
+
 def _cluster_indices(points: np.ndarray, eps: float, min_points: int) -> list[np.ndarray]:
-    """Cluster a class mask with a voxel-bucketed Euclidean BFS."""
+    """Cluster a class mask with a voxel-bucketed Euclidean BFS.
+
+    Each expansion tests every candidate of the 27 neighbouring cells in a
+    single vectorized comparison. Doing it point by point made the clustering
+    the slowest stage of inference on dense scans.
+    """
 
     if len(points) == 0:
         return []
     radius = max(float(eps), 1e-4)
-    cells = np.floor(points[:, :3] / radius).astype(np.int64)
+    coordinates = np.ascontiguousarray(points[:, :3], dtype=np.float64)
+    cells = np.floor(coordinates / radius).astype(np.int64)
     buckets: dict[tuple[int, int, int], list[int]] = {}
     for index, cell in enumerate(cells):
-        buckets.setdefault(tuple(int(item) for item in cell), []).append(index)
-    visited = np.zeros(len(points), dtype=bool)
+        buckets.setdefault((int(cell[0]), int(cell[1]), int(cell[2])), []).append(index)
+    bucket_arrays = {
+        key: np.asarray(value, dtype=np.int64) for key, value in buckets.items()
+    }
+    squared_radius = radius * radius
+    visited = np.zeros(len(coordinates), dtype=bool)
     clusters: list[np.ndarray] = []
-    for root in range(len(points)):
+    for root in range(len(coordinates)):
         if visited[root]:
             continue
         visited[root] = True
@@ -94,16 +110,24 @@ def _cluster_indices(points: np.ndarray, eps: float, min_points: int) -> list[np
         while queue:
             current = queue.pop()
             component.append(current)
-            cell = cells[current]
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    for dz in (-1, 0, 1):
-                        for candidate in buckets.get((int(cell[0] + dx), int(cell[1] + dy), int(cell[2] + dz)), ()): 
-                            if visited[candidate]:
-                                continue
-                            if np.linalg.norm(points[candidate, :3] - points[current, :3]) <= radius:
-                                visited[candidate] = True
-                                queue.append(candidate)
+            neighborhood = cells[current] + _NEIGHBOR_OFFSETS
+            groups = [
+                bucket_arrays[key]
+                for key in map(tuple, neighborhood.tolist())
+                if key in bucket_arrays
+            ]
+            if not groups:
+                continue
+            candidates = np.concatenate(groups)
+            candidates = candidates[~visited[candidates]]
+            if not len(candidates):
+                continue
+            deltas = coordinates[candidates] - coordinates[current]
+            near = candidates[np.einsum("ij,ij->i", deltas, deltas) <= squared_radius]
+            if not len(near):
+                continue
+            visited[near] = True
+            queue.extend(int(item) for item in near)
         if len(component) >= max(1, int(min_points)):
             clusters.append(np.asarray(component, dtype=np.int64))
     return clusters

@@ -39,7 +39,9 @@ from .data import (
     read_label_file,
     rotular_pontos,
     sample_fixed_points,
+    select_scan_subset,
     temporal_split,
+    temporal_three_way_split,
 )
 from .geometry import (
     OrientedBox,
@@ -58,6 +60,7 @@ from .training import smoke_train, train_model
 from .benchmark import (
     build_benchmark_manifest,
     load_benchmark_manifest,
+    manifest_from_run,
     run_benchmark,
     save_benchmark_manifest,
 )
@@ -104,7 +107,9 @@ __all__ = [
     "read_label_file",
     "rotular_pontos",
     "sample_fixed_points",
+    "select_scan_subset",
     "temporal_split",
+    "temporal_three_way_split",
     "MissingOptionalDependency",
     "PointNet2Config",
     "PointPreprocessingConfig",
@@ -115,6 +120,7 @@ __all__ = [
     "load_checkpoint",
     "load_benchmark_manifest",
     "load_config",
+    "manifest_from_run",
     "predict_points",
     "pyg_available",
     "save_checkpoint",

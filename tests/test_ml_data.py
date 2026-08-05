@@ -16,6 +16,8 @@ from ml import (
     prepare_point_sample,
     read_label_file,
     points_in_oriented_box,
+    select_scan_subset,
+    temporal_three_way_split,
 )
 from ml.preprocessing import PointPreprocessingConfig, preprocess_points
 
@@ -78,6 +80,42 @@ def test_prepare_point_sample_pads_and_preserves_foreground() -> None:
     assert sample.valid_mask.tolist() == [True] * 5 + [False] * 3
     assert {1, 2}.issubset(set(sample.labels.tolist()))
     np.testing.assert_array_equal(sample.points[:5], points)
+
+
+def test_prepare_point_sample_keeps_every_foreground_point_that_fits() -> None:
+    # Um scan real tem poucos por cento de pontos de objeto; se a amostragem
+    # descartar parte deles, o segmentador perde justamente o que deve aprender.
+    points = np.arange(300, dtype=np.float32).reshape(100, 3)
+    labels = np.zeros(100, dtype=np.int64)
+    labels[10:14] = 1
+    labels[70:73] = 4
+
+    sample = prepare_point_sample(points, labels, num_points=40, rng=3)
+
+    assert sample.points.shape == (40, 3)
+    kept = sorted(sample.indices.tolist())
+    assert set(range(10, 14)).issubset(kept)
+    assert set(range(70, 73)).issubset(kept)
+    assert int((sample.labels > 0).sum()) == 7
+
+
+def test_prepare_point_sample_caps_foreground_and_keeps_rare_classes() -> None:
+    points = np.arange(300, dtype=np.float32).reshape(100, 3)
+    labels = np.zeros(100, dtype=np.int64)
+    labels[:60] = 1  # classe abundante
+    labels[60:62] = 5  # classe rara
+
+    sample = prepare_point_sample(
+        points, labels, num_points=20, rng=5, max_foreground_ratio=0.5
+    )
+
+    assert sample.points.shape == (20, 3)
+    # Sem o teto, os 62 pontos de objeto ocupariam a amostra inteira e o modelo
+    # nunca veria o contexto de fundo em volta deles.
+    assert int((sample.labels == 0).sum()) > 0
+    # A cota é distribuída da classe rara para a abundante, nunca o contrário.
+    assert int((sample.labels == 5).sum()) == 2
+    assert int((sample.labels == 1).sum()) >= 1
 
 
 def test_prepare_point_sample_downsamples_to_exact_size() -> None:
@@ -190,3 +228,45 @@ def test_training_dataset_uses_the_same_preprocessing_contract(tmp_path: Path) -
 
     assert np.all(item["points"].numpy()[:, 2] > 0.0)
     assert 1 in set(item["labels"].numpy().tolist())
+
+
+def test_select_scan_subset_covers_the_whole_sequence() -> None:
+    scans = [Path(f"{index:06d}.bin") for index in range(3287)]
+
+    chosen = select_scan_subset(scans, 30)
+
+    assert len(chosen) == 30
+    assert chosen[0] == scans[0]
+    # O recorte contíguo (os 30 primeiros) cobria segundos de gravação e deixava
+    # a maioria das classes sem nenhuma ocorrência para medir.
+    assert chosen[-1] == scans[-1]
+    assert select_scan_subset(scans, None) == scans
+    assert select_scan_subset(scans, 9999) == scans
+
+
+def test_temporal_three_way_split_is_disjoint_and_ordered() -> None:
+    scans = [Path(f"{index:06d}.bin") for index in range(100)]
+
+    train, validation, test = temporal_three_way_split(scans, 0.2, 0.1)
+
+    assert len(train) == 70 and len(validation) == 20 and len(test) == 10
+    assert train[-1].stem < validation[0].stem < test[0].stem
+    assert not {item.stem for item in train} & {item.stem for item in test}
+    assert train + validation + test == scans
+
+
+def test_augmentation_varies_between_epochs_and_repeats_within_one(
+    tmp_path: Path,
+) -> None:
+    _write_scan(tmp_path)
+    dataset = WarehousePointDataset(tmp_path, num_points=4, random_seed=1, augment=True)
+
+    first = dataset[0]["points"].copy()
+    repeated = dataset[0]["points"].copy()
+    dataset.set_epoch(1)
+    second = dataset[0]["points"].copy()
+
+    np.testing.assert_array_equal(first, repeated)
+    # Uma seed presa ao índice aplicaria a mesma rotação em todas as épocas,
+    # o que equivale a um dataset fixo e não a aumento de dados.
+    assert not np.allclose(first, second)

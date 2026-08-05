@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import PointNet2Config, TrainingConfig, load_config
-from .data import WarehousePointDataset, temporal_split
+from .data import WarehousePointDataset, select_scan_subset, temporal_three_way_split
 from .benchmark import run_benchmark
 from .dependencies import require_torch
 from .inference import inferir_scan
@@ -75,15 +75,31 @@ def _resolve_run_dir(output: str, run_name: str | None, resume: str | None) -> P
 
 
 def _select_scan_subset(scans: list[Path], maximum: int | None) -> list[Path]:
-    """Seleciona scans uniformemente ao longo da sequência temporal."""
+    """Alias histórico para a seleção compartilhada com o benchmark."""
 
-    if maximum is None or int(maximum) >= len(scans):
-        return scans
-    maximum = int(maximum)
-    if maximum < 2:
-        raise ValueError("--max-scans deve ser pelo menos 2")
-    positions = [round(index * (len(scans) - 1) / (maximum - 1)) for index in range(maximum)]
-    return [scans[position] for position in positions]
+    return select_scan_subset(scans, maximum)
+
+
+def _recorded_split(run_dir: Path) -> dict[str, list[str]] | None:
+    """Lê os splits gravados por uma execução anterior, se existirem.
+
+    Recalcular o split ao retomar reparticionaria o treino sempre que uma
+    fração padrão mudasse, contaminando a validação com scans já vistos.
+    """
+
+    metadata_path = run_dir / "metadata.json"
+    if not metadata_path.is_file():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    keys = ("train_scan_ids", "validation_scan_ids", "test_scan_ids")
+    if not all(isinstance(metadata.get(key), list) for key in keys):
+        return None
+    return {key: [str(item) for item in metadata[key]] for key in keys}
 
 
 def train_command(args: argparse.Namespace) -> int:
@@ -101,16 +117,47 @@ def train_command(args: argparse.Namespace) -> int:
         train_config = TrainingConfig.from_mapping(train_config.to_dict(), epochs=args.epochs)
     if args.device is not None:
         train_config = TrainingConfig.from_mapping(train_config.to_dict(), device=args.device)
+    if args.test_fraction is not None:
+        train_config = TrainingConfig.from_mapping(
+            train_config.to_dict(), test_fraction=args.test_fraction
+        )
     root = Path(args.dataset).expanduser()
     bin_dir = root if root.name.casefold() in {"bin", "bins"} else root / "bin"
     dataset_root = bin_dir.parent if bin_dir.name.casefold() in {"bin", "bins"} else root
-    scans = sorted(bin_dir.glob("*.bin"))
-    scans = _select_scan_subset(scans, args.max_scans)
-    if not scans:
+    available = sorted(bin_dir.glob("*.bin"))
+    if not available:
         raise FileNotFoundError(f"Nenhum .bin encontrado em {bin_dir}")
-    if len(scans) < 2:
-        raise ValueError("O treinamento requer pelo menos dois scans para o split temporal.")
-    train_scans, validation_scans = temporal_split(scans, train_config.validation_fraction)
+    run_dir = _resolve_run_dir(args.output, args.run_name, args.resume)
+    recorded = _recorded_split(run_dir) if args.resume else None
+    if recorded is not None:
+        by_id = {scan.stem: scan for scan in available}
+        missing = [
+            scan_id
+            for ids in recorded.values()
+            for scan_id in ids
+            if scan_id not in by_id
+        ]
+        if missing:
+            raise FileNotFoundError(
+                "Scans do split gravado não estão no dataset: " + ", ".join(missing[:5])
+            )
+        train_scans = [by_id[scan_id] for scan_id in recorded["train_scan_ids"]]
+        validation_scans = [by_id[scan_id] for scan_id in recorded["validation_scan_ids"]]
+        test_scans = [by_id[scan_id] for scan_id in recorded["test_scan_ids"]]
+        scans = sorted(
+            train_scans + validation_scans + test_scans, key=lambda item: item.stem
+        )
+    else:
+        scans = select_scan_subset(available, args.max_scans)
+        if len(scans) < 2:
+            raise ValueError(
+                "O treinamento requer pelo menos dois scans para o split temporal."
+            )
+        train_scans, validation_scans, test_scans = temporal_three_way_split(
+            scans, train_config.validation_fraction, train_config.test_fraction
+        )
+    if not train_scans:
+        raise ValueError("O split temporal não deixou scans de treino.")
     class_weights = _class_weights(args.class_weights, model_config.num_classes)
     train_dataset = WarehousePointDataset(
         dataset_root,
@@ -139,12 +186,20 @@ def train_command(args: argparse.Namespace) -> int:
     train_loader = torch.utils.data.DataLoader(train_dataset, shuffle=True, **loader_kwargs)
     validation_loader = torch.utils.data.DataLoader(validation_dataset, shuffle=False, **loader_kwargs)
     model = PointNet2Segmentation(model_config)
-    run_dir = _resolve_run_dir(args.output, args.run_name, args.resume)
     metadata = {
         "dataset": str(root),
+        "split_strategy": "temporal_sorted_stem",
+        "selection_strategy": "uniform_over_sequence",
+        "max_scans": int(args.max_scans) if args.max_scans else None,
+        "input_points": int(model_config.input_points),
+        "validation_fraction": float(train_config.validation_fraction),
+        "test_fraction": float(train_config.test_fraction),
         "all_scan_ids": [scan.stem for scan in scans],
         "train_scan_ids": [scan.stem for scan in train_scans],
         "validation_scan_ids": [scan.stem for scan in validation_scans],
+        # Bloco reservado: nenhum dos loaders acima recebe estes scans, então o
+        # benchmark pode reusá-los como conjunto de teste real do checkpoint.
+        "test_scan_ids": [scan.stem for scan in test_scans],
         "class_weights": class_weights,
     }
     result = train_model(
@@ -189,6 +244,7 @@ def benchmark_command(args: argparse.Namespace) -> int:
         args.dataset,
         checkpoint=args.checkpoint,
         manifest=args.manifest,
+        from_run=args.from_run,
         output_dir=args.output,
         device=args.device,
         seed=args.seed,
@@ -213,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--input-points", type=int, help="pontos por scan, por exemplo 1024")
     train.add_argument("--device", default=None, help="cpu, cuda ou auto")
     train.add_argument(
+        "--test-fraction",
+        type=float,
+        help="fração final reservada para o benchmark (padrão 0.1)",
+    )
+    train.add_argument(
         "--class-weights",
         help="pesos CE, 'auto' ou lista como 0.1,1,1,1,1,1 (background + 5 classes)",
     )
@@ -231,6 +292,10 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--dataset", required=True)
     benchmark.add_argument("--checkpoint")
     benchmark.add_argument("--manifest")
+    benchmark.add_argument(
+        "--from-run",
+        help="diretório de execução cujo split real deve ser reutilizado",
+    )
     benchmark.add_argument("--output", default="benchmark")
     benchmark.add_argument("--device", default="cpu")
     benchmark.add_argument("--seed", type=int, default=42)

@@ -20,6 +20,7 @@ from ml.gui import (
     build_train_command,
     discover_checkpoints,
     format_duration,
+    run_dir_for_checkpoint,
     validate_dataset,
 )
 
@@ -33,9 +34,12 @@ CLASS_COLORS = {
     "ForkLift": "#fb7185",
 }
 TRAINING_PRESETS = {
-    "quick": {"epochs": 2, "batch": 2, "scans": 12, "points": 1024},
-    "recommended": {"epochs": 15, "batch": 2, "scans": 300, "points": 1024},
-    "complete": {"epochs": 20, "batch": 4, "scans": 0, "points": 4096},
+    # Os scans do Warehouse têm entre 3,5k e 9k pontos e menos de 7% deles caem
+    # dentro de caixas. Amostrar 8192 preserva o scan quase inteiro; valores
+    # menores descartam a maior parte dos pontos de objeto.
+    "quick": {"epochs": 2, "batch": 2, "scans": 12, "points": 8192},
+    "recommended": {"epochs": 15, "batch": 2, "scans": 300, "points": 8192},
+    "complete": {"epochs": 20, "batch": 4, "scans": 0, "points": 8192},
 }
 
 
@@ -329,7 +333,7 @@ class PointNetApplication:
                         "Máx. scans", value=300, min=2, precision=0
                     ).props("outlined dense")
                     self.refs["train_points"] = ui.number(
-                        "Pontos/scan", value=1024, min=32, precision=0
+                        "Pontos/scan", value=8192, min=32, precision=0
                     ).props("outlined dense")
                     self.refs["train_weights"] = ui.input(
                         "Pesos de classe", value="auto"
@@ -404,7 +408,7 @@ class PointNetApplication:
                 with ui.grid(columns=3).classes("w-full gap-3 p-2"):
                     self._device_select("infer_device")
                     self.refs["infer_points"] = ui.number(
-                        "Pontos/scan", value=4096, min=32, precision=0
+                        "Pontos/scan", value=8192, min=32, precision=0
                     ).props("outlined dense")
                     self.refs["infer_threshold"] = ui.number(
                         "Confiança", value=0.50, min=0, max=1, step=0.05
@@ -586,15 +590,9 @@ class PointNetApplication:
             previous = control.value
             control.options = options
             if previous not in options:
-                preferred = next(
-                    (
-                        value
-                        for value, label in options.items()
-                        if label.endswith("reduced-300x1024/checkpoints/best.pt")
-                    ),
-                    next(iter(options), None),
-                )
-                control.value = preferred
+                # discover_checkpoints já ordena do mais recente para o mais
+                # antigo, então o primeiro é o treino mais atual.
+                control.value = next(iter(options), None)
             control.update()
         self.refs["checkpoint_count"].set_text(f"{len(checkpoints)} modelos")
         if show_notification:
@@ -654,7 +652,7 @@ class PointNetApplication:
             epochs=epochs,
             batch_size=int(self.refs["train_batch"].value or 1),
             max_scans=int(self.refs["train_scans"].value or 0) or None,
-            input_points=int(self.refs["train_points"].value or 1024),
+            input_points=int(self.refs["train_points"].value or 8192),
             device=self.refs["train_device"].value,
             class_weights=self.refs["train_weights"].value or "auto",
         )
@@ -693,7 +691,7 @@ class PointNetApplication:
             scan=scan,
             checkpoint=checkpoint,
             device=self.refs["infer_device"].value,
-            num_points=int(self.refs["infer_points"].value or 4096),
+            num_points=int(self.refs["infer_points"].value or 8192),
             score_threshold=float(self.refs["infer_threshold"].value or 0),
             cluster_eps=float(self.refs["infer_eps"].value or 0.35),
             min_cluster_points=int(self.refs["infer_min_points"].value or 5),
@@ -713,14 +711,20 @@ class PointNetApplication:
         if not checkpoint:
             ui.notify("Selecione um checkpoint.", type="negative")
             return
+        # Quando o checkpoint pertence a uma execução, o benchmark reaproveita o
+        # split real dela em vez de inventar um recorte próprio do dataset.
+        from_run = run_dir_for_checkpoint(checkpoint)
         command = build_benchmark_command(
             dataset=self.dataset.root,
             checkpoint=checkpoint,
             output=self.refs["benchmark_output"].value,
             device=self.refs["benchmark_device"].value,
-            max_scans=int(self.refs["benchmark_scans"].value or 0) or None,
+            max_scans=(
+                None if from_run else int(self.refs["benchmark_scans"].value or 0) or None
+            ),
             seed=int(self.refs["benchmark_seed"].value or 42),
             manifest=self.refs["benchmark_manifest"].value or None,
+            from_run=from_run,
         )
         result = await self._execute("benchmark", command)
         if result is not None and result.returncode == 0 and result.payload:

@@ -23,7 +23,7 @@ from ..preprocessing import PointPreprocessingConfig, preprocess_points
 
 
 DEFAULT_BIN_FEATURES = 4
-DEFAULT_NUM_POINTS = 4096
+DEFAULT_NUM_POINTS = 8192
 
 
 def load_bin(
@@ -239,6 +239,46 @@ def _generator(value: np.random.Generator | int | None) -> np.random.Generator:
     return value if isinstance(value, np.random.Generator) else np.random.default_rng(value)
 
 
+def _foreground_indices(
+    labels: np.ndarray,
+    target: int,
+    max_ratio: float,
+    random: np.random.Generator,
+) -> list[int]:
+    """Índices de objeto que precisam entrar na amostra.
+
+    Os objetos ocupam poucos por cento de cada scan, então descartá-los na
+    amostragem apaga justamente o sinal que o segmentador precisa aprender.
+    Todos os pontos de foreground são mantidos; só quando eles passariam de
+    ``max_ratio`` da amostra é que cada classe é subamostrada proporcionalmente.
+    """
+
+    foreground = np.flatnonzero(labels > 0)
+    if not len(foreground):
+        return []
+    budget = min(len(foreground), int(target), max(1, int(target * float(max_ratio))))
+    if budget >= len(foreground):
+        return [int(item) for item in foreground]
+    classes = [
+        np.flatnonzero(labels == int(class_id))
+        for class_id in np.unique(labels[foreground])
+    ]
+    chosen: list[int] = []
+    remaining = budget
+    for position, choices in enumerate(sorted(classes, key=len)):
+        # Classes menores escolhem primeiro e a cota é recalculada a cada passo,
+        # de modo que uma classe rara nunca é engolida por uma abundante.
+        share = max(1, remaining // (len(classes) - position))
+        count = min(len(choices), share, remaining)
+        chosen.extend(
+            int(item) for item in random.choice(choices, size=count, replace=False)
+        )
+        remaining -= count
+        if remaining <= 0:
+            break
+    return chosen
+
+
 def prepare_point_sample(
     points: np.ndarray | Sequence[Sequence[float]],
     labels: np.ndarray | Sequence[int] | None = None,
@@ -246,6 +286,7 @@ def prepare_point_sample(
     num_points: int = DEFAULT_NUM_POINTS,
     rng: np.random.Generator | int | None = None,
     preserve_foreground: bool = True,
+    max_foreground_ratio: float = 0.5,
 ) -> PointSample:
     """Amostra sem reposição ou repete pontos até ``num_points``."""
 
@@ -260,23 +301,19 @@ def prepare_point_sample(
     target_labels = None if labels is None else np.asarray(labels, dtype=np.int64)
     if target_labels is not None and (target_labels.ndim != 1 or len(target_labels) != len(array)):
         raise ValueError("labels deve ter formato (N,).")
+    if not 0 < float(max_foreground_ratio) <= 1:
+        raise ValueError("max_foreground_ratio deve estar entre 0 e 1")
     random = _generator(rng)
     if len(array) >= target:
         required: list[int] = []
         if target_labels is not None and preserve_foreground:
-            for class_id in np.unique(target_labels):
-                class_id = int(class_id)
-                if class_id == 0:
-                    continue
-                choices = np.flatnonzero(target_labels == class_id)
-                if len(choices):
-                    required.append(int(random.choice(choices)))
-            required = required[:target]
-        required_set = set(required)
-        remaining = np.asarray(
-            [item for item in range(len(array)) if item not in required_set],
-            dtype=np.int64,
-        )
+            required = _foreground_indices(
+                target_labels, target, max_foreground_ratio, random
+            )
+        available = np.ones(len(array), dtype=bool)
+        if required:
+            available[np.asarray(required, dtype=np.int64)] = False
+        remaining = np.flatnonzero(available).astype(np.int64)
         count = target - len(required)
         chosen = np.concatenate((
             np.asarray(required, dtype=np.int64),
@@ -361,6 +398,7 @@ class WarehousePointDataset:
         self.class_names = tuple(class_names or WAREHOUSE_CLASS_TO_INDEX)
         self.augment = bool(augment)
         self.preprocessing = PointPreprocessingConfig.from_mapping(preprocessing)
+        self._epoch = 0
         files = sorted(self.bin_dir.glob("*.bin"))
         if scan_ids is not None:
             wanted = {Path(str(item)).stem for item in scan_ids}
@@ -372,6 +410,16 @@ class WarehousePointDataset:
     @property
     def scan_ids(self) -> tuple[str, ...]:
         return tuple(path.stem for path in self._files)
+
+    def set_epoch(self, epoch: int) -> None:
+        """Troca o stream de aumento de dados mantendo a reprodutibilidade.
+
+        Sem isso a seed do augment depende apenas do índice da amostra, e a
+        mesma rotação é aplicada em todas as épocas — o que equivale a uma
+        transformação fixa do dataset, não a aumento de dados.
+        """
+
+        self._epoch = int(epoch)
 
     def __len__(self) -> int:
         return len(self._files)
@@ -409,7 +457,12 @@ class WarehousePointDataset:
         )
         sampled_points = sample.points.copy()
         if self.augment and len(sampled_points):
-            random = _generator(seed)
+            # Stream independente do da amostragem e variável por época.
+            random = np.random.default_rng(
+                np.random.SeedSequence(
+                    [int(self.random_seed or 0), int(index), int(self._epoch), 1]
+                )
+            )
             angle = float(random.uniform(-np.pi, np.pi))
             cosine, sine = np.cos(angle), np.sin(angle)
             xy = sampled_points[:, :2].copy()
@@ -440,6 +493,29 @@ class WarehousePointDataset:
         return result
 
 
+def select_scan_subset(
+    scans: Sequence[str | Path], maximum: int | None,
+) -> list[Path]:
+    """Seleciona scans uniformemente ao longo da sequência temporal.
+
+    Recortar os primeiros ``maximum`` scans concentraria a amostra em um único
+    trecho da gravação, onde só algumas classes aparecem. O espaçamento uniforme
+    mantém a cobertura de toda a sequência, e por isso treino e benchmark usam
+    exatamente esta função.
+    """
+
+    ordered = [Path(scan) for scan in scans]
+    if maximum is None or int(maximum) >= len(ordered):
+        return ordered
+    count = int(maximum)
+    if count < 2:
+        raise ValueError("max_scans deve ser pelo menos 2")
+    positions = [
+        round(index * (len(ordered) - 1) / (count - 1)) for index in range(count)
+    ]
+    return [ordered[position] for position in positions]
+
+
 def temporal_split(
     scans: Sequence[str | Path], validation_fraction: float = 0.2,
 ) -> tuple[list[Path], list[Path]]:
@@ -453,6 +529,42 @@ def temporal_split(
         return ordered, []
     count = min(len(ordered) - 1, max(1, int(round(len(ordered) * fraction))))
     return ordered[:-count], ordered[-count:]
+
+
+def temporal_three_way_split(
+    scans: Sequence[str | Path],
+    validation_fraction: float = 0.2,
+    test_fraction: float = 0.1,
+) -> tuple[list[Path], list[Path], list[Path]]:
+    """Divide scans ordenados em treino, validação e teste temporais.
+
+    O bloco de teste fica no fim da sequência e nunca é usado pelo treino, o que
+    permite ao benchmark reproduzir exatamente o split de uma execução.
+    """
+
+    validation = float(validation_fraction)
+    test = float(test_fraction)
+    if not 0 < validation < 1:
+        raise ValueError("validation_fraction deve estar entre 0 e 1")
+    if not 0 <= test < 1:
+        raise ValueError("test_fraction deve estar entre 0 e 1")
+    if validation + test >= 1:
+        raise ValueError("validation_fraction + test_fraction deve ser menor que 1")
+    ordered = sorted((Path(scan) for scan in scans), key=lambda item: item.stem)
+    if len(ordered) < 3:
+        train, validation_scans = temporal_split(ordered, validation)
+        return train, validation_scans, []
+    validation_count = max(1, int(round(len(ordered) * validation)))
+    test_count = max(1, int(round(len(ordered) * test))) if test else 0
+    if validation_count + test_count >= len(ordered):
+        validation_count = 1
+        test_count = 1 if test else 0
+    train_end = len(ordered) - validation_count - test_count
+    return (
+        ordered[:train_end],
+        ordered[train_end:train_end + validation_count],
+        ordered[train_end + validation_count:],
+    )
 
 
 WarehouseDataset = WarehousePointDataset
@@ -478,5 +590,7 @@ __all__ = [
     "read_label_file",
     "rotular_pontos",
     "sample_fixed_points",
+    "select_scan_subset",
     "temporal_split",
+    "temporal_three_way_split",
 ]

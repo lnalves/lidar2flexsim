@@ -48,9 +48,9 @@ class PointNet2Config:
 
     num_classes: int = 6
     in_channels: int = 4
-    input_points: int = 4096
-    sa1_points: int = 256
-    sa2_points: int = 64
+    input_points: int = 8192
+    sa1_points: int = 512
+    sa2_points: int = 128
     neighbors: int = 16
     hidden_channels: int = 64
     dropout: float = 0.10
@@ -143,6 +143,7 @@ class TrainingConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     validation_fraction: float = 0.2
+    test_fraction: float = 0.1
     seed: int = 42
     device: str = "auto"
     score_threshold: float = 0.50
@@ -163,6 +164,14 @@ class TrainingConfig:
         if not 0 < fraction < 1:
             raise ValueError("validation_fraction deve estar entre 0 e 1")
         object.__setattr__(self, "validation_fraction", fraction)
+        test = float(self.test_fraction)
+        if not math.isfinite(test) or not 0 <= test < 1:
+            raise ValueError("test_fraction deve estar entre 0 e 1")
+        if fraction + test >= 1:
+            raise ValueError(
+                "validation_fraction + test_fraction deve ser menor que 1"
+            )
+        object.__setattr__(self, "test_fraction", test)
         threshold = float(self.score_threshold)
         if not 0 <= threshold <= 1:
             raise ValueError("score_threshold deve estar entre 0 e 1")

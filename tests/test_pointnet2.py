@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import pickle
 from pathlib import Path
@@ -296,6 +297,158 @@ def test_benchmark_manifest_is_deterministic_and_disjoint(tmp_path: Path) -> Non
     assert train.isdisjoint(validation)
     assert train.isdisjoint(test)
     assert validation.isdisjoint(test)
+
+
+def test_train_command_reserves_a_test_split_it_never_loads(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    from ml.cli import main
+
+    bin_dir = tmp_path / "bin"
+    label_dir = tmp_path / "label"
+    bin_dir.mkdir()
+    label_dir.mkdir()
+    for index in range(6):
+        points = np.tile(
+            np.asarray([[0.0, 0.0, 0.0, 0.1], [0.4, 0.0, 0.0, 0.2]], dtype=np.float32),
+            (4, 1),
+        )
+        (bin_dir / f"{index:06d}.bin").write_bytes(points.tobytes())
+        (label_dir / f"{index:06d}.txt").write_text(
+            "Box 0 0 0 1 1 1 0\n", encoding="utf-8"
+        )
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "model": {
+                "input_points": 8,
+                "sa1_points": 4,
+                "sa2_points": 2,
+                "neighbors": 2,
+                "hidden_channels": 8,
+            },
+            "training": {"epochs": 1, "batch_size": 1, "device": "cpu"},
+        }),
+        encoding="utf-8",
+    )
+
+    code = main([
+        "train",
+        "--dataset", str(tmp_path),
+        "--config", str(config_path),
+        "--output", str(tmp_path / "runs"),
+        "--run-name", "split-check",
+    ])
+
+    assert code == 0
+    metadata = json.loads(
+        (tmp_path / "runs" / "split-check" / "metadata.json").read_text(encoding="utf-8")
+    )
+    train = set(metadata["train_scan_ids"])
+    validation = set(metadata["validation_scan_ids"])
+    test = set(metadata["test_scan_ids"])
+    assert train and validation and test
+    # O bloco de teste precisa ficar intocado para o benchmark ser honesto.
+    assert test.isdisjoint(train | validation)
+    assert train | validation | test == set(metadata["all_scan_ids"])
+
+
+def test_benchmark_manifest_spans_the_sequence_instead_of_its_head() -> None:
+    from ml.benchmark import build_benchmark_manifest
+
+    scans = [Path(f"{index:06d}.bin") for index in range(3287)]
+
+    manifest = build_benchmark_manifest(scans, max_scans=30)
+
+    # Recortar os 30 primeiros frames media um trecho onde só uma classe
+    # aparece, e todas as demais saíam do relatório com suporte zero.
+    assert manifest["all_scan_ids"][0] == "000000"
+    assert manifest["all_scan_ids"][-1] == "003286"
+    assert manifest["selection_strategy"] == "uniform_over_sequence"
+    assert manifest["max_scans"] == 30
+
+
+def test_manifest_from_run_reuses_the_split_the_checkpoint_trained_on(
+    tmp_path: Path,
+) -> None:
+    from ml.benchmark import manifest_from_run
+
+    run_dir = tmp_path / "runs" / "exemplo"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    (run_dir / "metadata.json").write_text(
+        json.dumps({
+            "all_scan_ids": ["000000", "000010", "000020", "000030"],
+            "train_scan_ids": ["000000", "000010"],
+            "validation_scan_ids": ["000020"],
+            "test_scan_ids": ["000030"],
+            "validation_fraction": 0.2,
+            "test_fraction": 0.1,
+        }),
+        encoding="utf-8",
+    )
+
+    manifest = manifest_from_run(run_dir)
+    from_checkpoint_dir = manifest_from_run(run_dir / "checkpoints")
+
+    assert manifest["train_scan_ids"] == ["000000", "000010"]
+    assert manifest["test_scan_ids"] == ["000030"]
+    assert manifest["source_run"] == str(run_dir)
+    assert from_checkpoint_dir == manifest
+
+
+def test_load_benchmark_manifest_accepts_the_pre_refactor_format(
+    tmp_path: Path,
+) -> None:
+    from ml.benchmark import MANIFEST_FORMAT, load_benchmark_manifest
+
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps({
+            "format": "lidar2flexsim-benchmark-v1",
+            "train_scan_ids": ["000000"],
+            "validation_scan_ids": ["000001"],
+            "test_scan_ids": ["000002"],
+        }),
+        encoding="utf-8",
+    )
+
+    restored = load_benchmark_manifest(path)
+
+    assert restored["format"] == MANIFEST_FORMAT
+    assert restored["test_scan_ids"] == ["000002"]
+
+
+def test_cluster_indices_match_a_naive_reference() -> None:
+    from ml.inference import _cluster_indices
+
+    generator = np.random.default_rng(11)
+    points = np.concatenate([
+        generator.normal(0.0, 0.05, size=(40, 3)),
+        generator.normal(3.0, 0.05, size=(25, 3)),
+        generator.normal(-4.0, 0.05, size=(12, 3)),
+    ]).astype(np.float32)
+    radius = 0.35
+
+    def naive(values: np.ndarray) -> list[set[int]]:
+        pending = set(range(len(values)))
+        found: list[set[int]] = []
+        while pending:
+            queue = [pending.pop()]
+            component = set(queue)
+            while queue:
+                current = queue.pop()
+                for candidate in list(pending):
+                    distance = np.linalg.norm(values[candidate, :3] - values[current, :3])
+                    if distance <= radius:
+                        pending.discard(candidate)
+                        component.add(candidate)
+                        queue.append(candidate)
+            found.append(component)
+        return found
+
+    clusters = _cluster_indices(points, radius, 1)
+
+    expected = sorted(naive(points), key=lambda item: min(item))
+    assert sorted((set(item.tolist()) for item in clusters), key=lambda item: min(item)) == expected
 
 
 def test_prediction_calibration_filters_and_suppresses_duplicates() -> None:

@@ -20,7 +20,9 @@ from .pointnet import (
     read_label_file,
     rotular_pontos,
     sample_fixed_points,
+    select_scan_subset,
     temporal_split,
+    temporal_three_way_split,
 )
 from ..preprocessing import PointPreprocessingConfig, preprocess_points
 
@@ -46,5 +48,7 @@ __all__ = [
     "read_label_file",
     "rotular_pontos",
     "sample_fixed_points",
+    "select_scan_subset",
     "temporal_split",
+    "temporal_three_way_split",
 ]

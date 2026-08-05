@@ -78,6 +78,20 @@ def discover_checkpoints(project_root: str | Path) -> list[Path]:
     )
 
 
+def run_dir_for_checkpoint(checkpoint: str | Path) -> Path | None:
+    """Devolve a execução que produziu um checkpoint, se houver uma.
+
+    O benchmark só reproduz o split real do modelo quando sabe de qual execução
+    o checkpoint veio; a interface deriva isso do próprio caminho escolhido.
+    """
+
+    if not checkpoint:
+        return None
+    source = Path(checkpoint).expanduser()
+    run_dir = source.parent.parent if source.parent.name == "checkpoints" else source.parent
+    return run_dir if (run_dir / "metadata.json").is_file() else None
+
+
 def available_devices() -> dict[str, str]:
     """Retorna dispositivos realmente utilizáveis pelo PyTorch local."""
 
@@ -187,6 +201,7 @@ def build_benchmark_command(
     max_scans: int | None,
     seed: int = 42,
     manifest: str | Path | None = None,
+    from_run: str | Path | None = None,
     python: str = sys.executable,
 ) -> list[str]:
     command = [
@@ -209,6 +224,8 @@ def build_benchmark_command(
         command.extend(["--max-scans", str(int(max_scans))])
     if manifest:
         command.extend(["--manifest", str(manifest)])
+    elif from_run:
+        command.extend(["--from-run", str(from_run)])
     return command
 
 
@@ -363,5 +380,6 @@ __all__ = [
     "build_train_command",
     "discover_checkpoints",
     "format_duration",
+    "run_dir_for_checkpoint",
     "validate_dataset",
 ]

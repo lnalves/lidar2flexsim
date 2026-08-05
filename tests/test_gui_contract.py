@@ -15,6 +15,7 @@ from ml.gui import (
     build_train_command,
     discover_checkpoints,
     format_duration,
+    run_dir_for_checkpoint,
     validate_dataset,
 )
 
@@ -104,6 +105,7 @@ def test_command_builders_match_the_public_cli() -> None:
         output="benchmark/test",
         device="cpu",
         max_scans=30,
+        from_run="runs/test",
         python="python",
     )
 
@@ -112,6 +114,25 @@ def test_command_builders_match_the_public_cli() -> None:
     assert infer[:4] == ["python", "-m", "ml.cli", "infer"]
     assert infer[infer.index("--score-threshold") + 1] == "0.5"
     assert benchmark[:4] == ["python", "-m", "ml.cli", "benchmark"]
+    assert benchmark[benchmark.index("--from-run") + 1] == "runs/test"
+
+
+def test_run_dir_for_checkpoint_finds_the_execution_that_produced_it(
+    tmp_path: Path,
+) -> None:
+    run = tmp_path / "runs" / "exemplo"
+    (run / "checkpoints").mkdir(parents=True)
+    (run / "checkpoints" / "best.pt").write_bytes(b"")
+    (run / "metadata.json").write_text("{}", encoding="utf-8")
+    orphan = tmp_path / "checkpoints"
+    orphan.mkdir()
+    (orphan / "best.pt").write_bytes(b"")
+
+    assert run_dir_for_checkpoint(run / "checkpoints" / "best.pt") == run
+    # Sem metadata.json não há split para reaproveitar, e o benchmark deve cair
+    # no recorte padrão em vez de apontar para uma execução inexistente.
+    assert run_dir_for_checkpoint(orphan / "best.pt") is None
+    assert run_dir_for_checkpoint("") is None
 
 
 def test_process_runner_captures_json_payload(tmp_path: Path) -> None:
@@ -159,6 +180,11 @@ def test_training_presets_keep_the_primary_flow_concise() -> None:
         "epochs": 15,
         "batch": 2,
         "scans": 300,
-        "points": 1024,
+        "points": 8192,
     }
     assert TRAINING_PRESETS["complete"]["scans"] == 0
+    # Um scan do Warehouse tem no máximo ~9k pontos e menos de 7% deles são de
+    # objeto. Um preset que amostre pouco descarta o sinal a ser aprendido.
+    assert all(
+        preset["points"] >= 8192 for preset in TRAINING_PRESETS.values()
+    )
