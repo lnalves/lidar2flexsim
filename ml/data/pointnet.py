@@ -69,15 +69,6 @@ def load_bin(
             )
     return np.ascontiguousarray(records[:, :requested], dtype=np.float32)
 
-
-def load_warehouse_bin(path: str | Path, **kwargs: Any) -> np.ndarray:
-    return load_bin(path, **kwargs)
-
-
-def carregar_bin(path: str | Path, **kwargs: Any) -> np.ndarray:
-    return load_bin(path, **kwargs)
-
-
 def _parse_label_line(
     fields: Sequence[str], *, path: Path, line_number: int,
     strict_classes: bool,
@@ -115,15 +106,6 @@ def read_label_file(
                 strict_classes=strict_classes,
             ))
     return boxes
-
-
-def load_labels(path: str | Path, **kwargs: Any) -> list[OrientedBox]:
-    return read_label_file(path, **kwargs)
-
-
-def ler_labels(path: str | Path, **kwargs: Any) -> list[OrientedBox]:
-    return read_label_file(path, **kwargs)
-
 
 @dataclass(frozen=True)
 class WarehouseScan:
@@ -195,15 +177,6 @@ def assign_point_labels(
         mask = points_in_oriented_box(array, box, tolerance=tolerance)
         output[mask & (output == background)] = class_id
     return output
-
-
-def label_points(*args: Any, **kwargs: Any) -> np.ndarray:
-    return assign_point_labels(*args, **kwargs)
-
-
-def rotular_pontos(*args: Any, **kwargs: Any) -> np.ndarray:
-    return assign_point_labels(*args, **kwargs)
-
 
 @dataclass(frozen=True)
 class PointSample:
@@ -332,15 +305,6 @@ def prepare_point_sample(
         chosen,
         valid,
     )
-
-
-def sample_fixed_points(*args: Any, **kwargs: Any) -> PointSample:
-    return prepare_point_sample(*args, **kwargs)
-
-
-def prepare_sample(*args: Any, **kwargs: Any) -> PointSample:
-    return prepare_point_sample(*args, **kwargs)
-
 
 def _resolve_dirs(root: Path) -> tuple[Path, Path | None]:
     if root.is_file():
@@ -578,18 +542,10 @@ __all__ = [
     "WarehousePointDataset",
     "WarehouseScan",
     "assign_point_labels",
-    "carregar_bin",
-    "label_points",
-    "ler_labels",
     "load_bin",
-    "load_labels",
     "load_scan",
-    "load_warehouse_bin",
     "prepare_point_sample",
-    "prepare_sample",
     "read_label_file",
-    "rotular_pontos",
-    "sample_fixed_points",
     "select_scan_subset",
     "temporal_split",
     "temporal_three_way_split",

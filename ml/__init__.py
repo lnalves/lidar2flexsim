@@ -14,8 +14,6 @@ from .classes import (
     class_index_to_name,
     class_name_to_index,
     class_to_index,
-    decode_class_indices,
-    encode_class_names,
     index_to_class,
     normalize_class_name,
 )
@@ -88,8 +86,6 @@ __all__ = [
     "class_index_to_name",
     "class_name_to_index",
     "class_to_index",
-    "decode_class_indices",
-    "encode_class_names",
     "index_to_class",
     "label_points",
     "ler_labels",

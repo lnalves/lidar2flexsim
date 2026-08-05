@@ -41,13 +41,6 @@ def torch_available() -> bool:
 
     return TORCH_AVAILABLE
 
-
-def pyg_available() -> bool:
-    """Return whether PyTorch Geometric can be imported in the environment."""
-
-    return PYG_AVAILABLE
-
-
 def require_torch(feature: str = "o modelo PointNet++") -> Any:
     """Return the imported torch module or raise a clear installation error."""
 

@@ -79,16 +79,6 @@ class OrientedBox:
     def yaw(self) -> float:
         return self.yaw_rad
 
-    def as_dict(self) -> dict[str, object]:
-        """Converte a caixa para o mesmo formato lógico do avaliador."""
-
-        return {
-            "classe": self.class_name,
-            "centro": list(self.center),
-            "dimensoes": list(self.dimensions),
-            "yaw_rad": self.yaw_rad,
-        }
-
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "OrientedBox":
         """Cria uma caixa a partir de um mapping de label/JSON.
@@ -165,27 +155,6 @@ def points_in_oriented_box(
 # Nomes curtos/portugueses tornam a função conveniente para notebooks antigos.
 points_inside_oriented_box = points_in_oriented_box
 pontos_na_caixa_orientada = points_in_oriented_box
-
-
-def box_corners(
-    box: OrientedBox | Mapping[str, object] | Sequence[object],
-) -> np.ndarray:
-    """Retorna os oito vértices da caixa em coordenadas globais.
-
-    A ordem dos vértices não é parte do contrato; o retorno tem shape
-    ``(8, 3)`` e é útil para visualização e avaliação.
-    """
-
-    current = _coerce_box(box)
-    dx, dy, dz = np.asarray(current.dimensions, dtype=np.float64) / 2.0
-    local = np.array([
-        [-dx, -dy, -dz], [-dx, -dy, dz], [-dx, dy, -dz], [-dx, dy, dz],
-        [dx, -dy, -dz], [dx, -dy, dz], [dx, dy, -dz], [dx, dy, dz],
-    ], dtype=np.float64)
-    c, s = math.cos(current.yaw_rad), math.sin(current.yaw_rad)
-    rotation = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-    return local @ rotation.T + np.asarray(current.center, dtype=np.float64)
-
 
 __all__ = [
     "OrientedBox",

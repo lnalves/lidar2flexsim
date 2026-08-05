@@ -103,35 +103,6 @@ def class_index_to_name(
         return "unknown"
     return str(value)
 
-
-def encode_class_names(
-    names: Iterable[str],
-    *,
-    mapping: Mapping[str, int] | None = None,
-    strict: bool = True,
-) -> list[int]:
-    """Codifica uma coleção de nomes mantendo a ordem de entrada."""
-
-    return [
-        class_name_to_index(name, mapping=mapping, strict=strict)
-        for name in names
-    ]
-
-
-def decode_class_indices(
-    indices: Iterable[int],
-    *,
-    mapping: Mapping[int, str] | None = None,
-    strict: bool = True,
-) -> list[str]:
-    """Decodifica uma coleção de índices mantendo a ordem de entrada."""
-
-    return [
-        class_index_to_name(index, mapping=mapping, strict=strict)
-        for index in indices
-    ]
-
-
 # Aliases de nomenclatura usados em notebooks e na documentação.
 CLASS_NAMES = WAREHOUSE_CLASS_NAMES
 CLASS_TO_INDEX = WAREHOUSE_CLASS_TO_INDEX
@@ -150,8 +121,6 @@ __all__ = [
     "class_name_to_index",
     "class_index_to_name",
     "class_to_index",
-    "decode_class_indices",
-    "encode_class_names",
     "index_to_class",
     "normalize_class_name",
 ]

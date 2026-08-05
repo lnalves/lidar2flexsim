@@ -72,9 +72,6 @@ if _torch is not None:  # pragma: no cover - covered in environments with torch
                 previous = channel
             self.layers = nn.Sequential(*layers)
 
-        def forward(self, values: Tensor) -> Tensor:
-            return self.layers(values)
-
 
     class _SetAbstraction(nn.Module):
         """Sampling + local PointNet block used by the encoder."""
@@ -91,25 +88,6 @@ if _torch is not None:  # pragma: no cover - covered in environments with torch
             self.neighbors = int(neighbors)
             # Relative xyz is always appended to point features.
             self.mlp = _SharedMLP(in_channels + 3, out_channels)
-
-        def forward(self, xyz: Tensor, features: Tensor | None) -> tuple[Tensor, Tensor]:
-            # xyz [B,N,3], features [B,C,N]
-            indices = _farthest_point_sample(xyz, self.points)
-            sampled_xyz = _index_points(xyz, indices)
-            count = min(self.neighbors, xyz.shape[1])
-            distances = torch.cdist(sampled_xyz, xyz)
-            neighbor_indices = distances.topk(count, dim=-1, largest=False).indices
-            grouped_xyz = _index_points(xyz, neighbor_indices) - sampled_xyz.unsqueeze(2)
-            grouped_xyz = grouped_xyz.permute(0, 3, 1, 2).contiguous()
-            if features is None:
-                grouped = grouped_xyz
-            else:
-                # Convert [B,C,N] -> [B,N,C] before gathering.
-                grouped_features = _index_points(features.transpose(1, 2), neighbor_indices)
-                grouped_features = grouped_features.permute(0, 3, 1, 2).contiguous()
-                grouped = torch.cat([grouped_xyz, grouped_features], dim=1)
-            encoded = self.mlp(grouped).max(dim=-1).values
-            return sampled_xyz, encoded
 
 
     def _interpolate_features(
@@ -182,43 +160,6 @@ if _torch is not None:  # pragma: no cover - covered in environments with torch
                 nn.Dropout(self.config.dropout),
                 nn.Conv1d(width, self.config.num_classes, 1),
             )
-
-        def forward(self, points: Tensor) -> Tensor:
-            if points.ndim != 3:
-                raise ValueError("A entrada deve ter formato [B,N,C] ou [B,C,N]")
-            if points.shape[-1] == self.config.in_channels:
-                values = points
-            elif points.shape[1] == self.config.in_channels:
-                values = points.transpose(1, 2)
-            else:
-                raise ValueError(
-                    f"A entrada deve conter {self.config.in_channels} canais; "
-                    f"formato recebido: {tuple(points.shape)}"
-                )
-            if values.shape[-1] < 3:
-                raise ValueError("São necessários pelo menos os canais XYZ")
-            xyz = values[..., :3].contiguous()
-            features = values.transpose(1, 2).contiguous()
-            xyz1, f1 = self.sa1(xyz, features)
-            xyz2, f2 = self.sa2(xyz1, f1)
-            f2_up = _interpolate_features(xyz2, f2, xyz1)
-            f2_up = self.fp2(torch.cat([f2_up, f1], dim=1))
-            f1_up = _interpolate_features(xyz1, f2_up, xyz)
-            f1_up = self.fp1(torch.cat([f1_up, features], dim=1))
-            return self.head(torch.cat([f1_up, features], dim=1)).transpose(1, 2).contiguous()
-
-        def predict(self, points: Tensor) -> tuple[Tensor, Tensor]:
-            """Return class IDs and confidence per point in evaluation mode."""
-
-            was_training = self.training
-            self.eval()
-            with torch.no_grad():
-                logits = self(points)
-                probabilities = logits.softmax(dim=-1)
-                confidence, labels = probabilities.max(dim=-1)
-            if was_training:
-                self.train()
-            return labels, confidence
 
 else:
 

@@ -96,16 +96,6 @@ def _metrics_from_confusion(
         "confusion_matrix": matrix.tolist(),
     }
 
-
-def _batch_metrics(predicted: Any, target: Any, num_classes: int) -> dict[str, float]:
-    """Compatibilidade para consumidores antigos; métricas novas são globais."""
-
-    metrics = _metrics_from_confusion(
-        _confusion_from_batch(predicted, target, num_classes), num_classes
-    )
-    return {"accuracy": float(metrics["accuracy"]), "miou": float(metrics["miou"])}
-
-
 def _append_jsonl(path: Path, value: Mapping[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(dict(value), ensure_ascii=False, default=str) + "\n")

@@ -21,13 +21,6 @@ DEFAULT_CLASS_NAMES = (
     "ForkLift",
 )
 
-
-def _as_bool(value: Any) -> bool:
-    if isinstance(value, str):
-        return value.strip().casefold() not in {"", "0", "false", "no", "nao", "não", "off"}
-    return bool(value)
-
-
 def _as_tuple(value: Any, fallback: tuple[str, ...]) -> tuple[str, ...]:
     if value is None:
         return fallback

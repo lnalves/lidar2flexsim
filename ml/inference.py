@@ -16,10 +16,7 @@ from .dependencies import require_torch
 from .models.pointnet2_seg import PointNet2Segmentation
 from .preprocessing import (
     PointPreprocessingConfig,
-    estimate_ground_mask,
     preprocess_points,
-    remove_sparse_outliers,
-    voxel_downsample,
 )
 
 
@@ -46,19 +43,6 @@ def _coerce_points(scan: str | Path | np.ndarray | Sequence[Sequence[float]]) ->
     if points.shape[1] == 3:
         points = np.column_stack([points, np.zeros(len(points), dtype=np.float32)])
     return np.ascontiguousarray(points[:, :4], dtype=np.float32)
-
-
-def _voxel_downsample(points: np.ndarray, voxel: float) -> np.ndarray:
-    return voxel_downsample(points, voxel)
-
-
-def _estimate_ground(points: np.ndarray, quantile: float, max_tilt_deg: float, distance: float) -> tuple[np.ndarray, dict[str, Any]]:
-    return estimate_ground_mask(points, quantile, max_tilt_deg, distance)
-
-
-def _remove_sparse_outliers(points: np.ndarray, neighbors: int, std_ratio: float) -> np.ndarray:
-    return remove_sparse_outliers(points, neighbors, std_ratio)
-
 
 def _prepare_points(points: np.ndarray, count: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     if len(points) == 0:
@@ -177,34 +161,6 @@ def _oriented_box(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
         dimensions = np.zeros(3, dtype=np.float64)
     dimensions = np.maximum(dimensions, 0.05)
     return center.astype(np.float32), dimensions.astype(np.float32), yaw
-
-
-def _load_model(
-    checkpoint: str | Path | None,
-    model: Any | None,
-    config: PointNet2Config | Mapping[str, Any] | None,
-    device: Any,
-) -> tuple[Any, PointNet2Config, dict[str, Any]]:
-    if model is not None:
-        model_config = getattr(model, "config", None)
-        if model_config is None:
-            model_config = config
-        model_config = model_config if isinstance(model_config, PointNet2Config) else PointNet2Config.from_mapping(model_config)
-        model.to(device)
-        model.eval()
-        return model, model_config, {}
-    if checkpoint is None:
-        raise RuntimeError("Informe checkpoint=... ou forneça model=... para inferência PointNet++.")
-    # Read config before constructing the model, then restore its weights.
-    payload = load_checkpoint(checkpoint, map_location=device)
-    checkpoint_config = payload.get("config") or (config.to_dict() if isinstance(config, PointNet2Config) else config) or {}
-    model_config = checkpoint_config if isinstance(checkpoint_config, PointNet2Config) else PointNet2Config.from_mapping(checkpoint_config)
-    model = PointNet2Segmentation(model_config)
-    load_checkpoint(checkpoint, model=model, map_location=device)
-    model.to(device)
-    model.eval()
-    return model, model_config, payload
-
 
 def predict_points(
     scan: str | Path | np.ndarray | Sequence[Sequence[float]],
