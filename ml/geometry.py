@@ -61,24 +61,6 @@ class OrientedBox:
 
         return float(np.prod(self.dimensions))
 
-    # Aliases úteis para código que usa a nomenclatura da documentação do
-    # dataset ou do projeto em português.
-    @property
-    def classe(self) -> str:
-        return self.class_name
-
-    @property
-    def centro(self) -> tuple[float, float, float]:
-        return self.center
-
-    @property
-    def dimensoes(self) -> tuple[float, float, float]:
-        return self.dimensions
-
-    @property
-    def yaw(self) -> float:
-        return self.yaw_rad
-
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "OrientedBox":
         """Cria uma caixa a partir de um mapping de label/JSON.
@@ -151,14 +133,11 @@ def points_in_oriented_box(
         & (np.abs(delta[:, 2]) <= half[2])
     )
 
-
-# Nomes curtos/portugueses tornam a função conveniente para notebooks antigos.
 points_inside_oriented_box = points_in_oriented_box
 pontos_na_caixa_orientada = points_in_oriented_box
 
 __all__ = [
     "OrientedBox",
-    "box_corners",
     "points_in_oriented_box",
     "points_inside_oriented_box",
     "pontos_na_caixa_orientada",

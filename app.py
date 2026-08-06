@@ -632,6 +632,104 @@ class PointNetApplication:
             return False
         return True
 
+    async def start_training(self) -> None:
+        if not self._ensure_ready():
+            return
+        from nicegui import ui
+
+        assert self.dataset is not None
+        epochs = int(self.refs["train_epochs"].value or 0)
+        if epochs < 1:
+            ui.notify("Épocas deve ser pelo menos 1.", type="negative")
+            return
+        self.expected_epochs = epochs
+        command = build_train_command(
+            dataset=self.dataset.root,
+            output=self.refs["train_output"].value,
+            config=self.refs["train_config"].value or None,
+            run_name=self.refs["train_run_name"].value or None,
+            resume=self.refs["train_resume"].value or None,
+            epochs=epochs,
+            batch_size=int(self.refs["train_batch"].value or 1),
+            max_scans=int(self.refs["train_scans"].value or 0) or None,
+            input_points=int(self.refs["train_points"].value or 8192),
+            device=self.refs["train_device"].value,
+            class_weights=self.refs["train_weights"].value or "auto",
+        )
+        result = await self._execute("training", command)
+        if result is not None and result.returncode == 0:
+            records = [
+                event for event in result.events
+                if "epoch" in event and "loss" in event
+            ]
+            self.refs["train_chart"].options.clear()
+            self.refs["train_chart"].options.update(
+                self._training_chart_options(records)
+            )
+            self.refs["train_chart"].update()
+            if records:
+                last = records[-1]
+                self.refs["train_epoch_kpi"].set_text(str(last.get("epoch", "—")))
+                self.refs["train_miou_kpi"].set_text(
+                    _percent(last.get("val_miou", last.get("miou", 0)))
+                )
+            self.refs["train_run_name"].value = self._new_run_name()
+            self.refs["train_run_name"].update()
+            self.refresh_checkpoints(show_notification=False)
+
+    async def start_inference(self) -> None:
+        if not self._ensure_ready():
+            return
+        from nicegui import ui
+
+        scan = self.refs["infer_scan"].value
+        checkpoint = self.refs["infer_checkpoint"].value
+        if not scan or not checkpoint:
+            ui.notify("Selecione um scan e um checkpoint.", type="negative")
+            return
+        command = build_infer_command(
+            scan=scan,
+            checkpoint=checkpoint,
+            device=self.refs["infer_device"].value,
+            num_points=int(self.refs["infer_points"].value or 8192),
+            score_threshold=float(self.refs["infer_threshold"].value or 0),
+            cluster_eps=float(self.refs["infer_eps"].value or 0.35),
+            min_cluster_points=int(self.refs["infer_min_points"].value or 5),
+            calibration=self.refs["infer_calibration"].value or None,
+        )
+        result = await self._execute("inference", command)
+        if result is not None and result.returncode == 0 and result.payload:
+            self._show_inference(result.payload, checkpoint)
+
+    async def start_benchmark(self) -> None:
+        if not self._ensure_ready():
+            return
+        from nicegui import ui
+
+        assert self.dataset is not None
+        checkpoint = self.refs["benchmark_checkpoint"].value
+        if not checkpoint:
+            ui.notify("Selecione um checkpoint.", type="negative")
+            return
+        # Quando o checkpoint pertence a uma execução, o benchmark reaproveita o
+        # split real dela em vez de inventar um recorte próprio do dataset.
+        from_run = run_dir_for_checkpoint(checkpoint)
+        command = build_benchmark_command(
+            dataset=self.dataset.root,
+            checkpoint=checkpoint,
+            output=self.refs["benchmark_output"].value,
+            device=self.refs["benchmark_device"].value,
+            max_scans=(
+                None if from_run else int(self.refs["benchmark_scans"].value or 0) or None
+            ),
+            seed=int(self.refs["benchmark_seed"].value or 42),
+            manifest=self.refs["benchmark_manifest"].value or None,
+            from_run=from_run,
+        )
+        result = await self._execute("benchmark", command)
+        if result is not None and result.returncode == 0 and result.payload:
+            self._show_benchmark(result.payload)
+
     async def _execute(
         self, mode: str, command: list[str]
     ) -> ProcessResult | None:
@@ -684,6 +782,46 @@ class PointNetApplication:
             )
             ui.notify("Operação concluída.", type="positive")
         return result
+
+    def cancel_operation(self) -> None:
+        from nicegui import ui
+
+        if self.runner.cancel():
+            self.refs["operation_status"].set_text("Cancelando…")
+            self.refs["operation_detail"].set_text(
+                "Aguardando o processo encerrar e liberar os arquivos."
+            )
+        else:
+            ui.notify("Nenhuma operação em execução.", type="info")
+
+    def _refresh_operation_status(self) -> None:
+        snapshot = self.runner.snapshot()
+        if not snapshot.running:
+            return
+        self.refs["operation_detail"].set_text(
+            f"{format_duration(snapshot.elapsed_seconds)} · {snapshot.line_count} atualizações"
+        )
+        if self.active_mode == "training":
+            records = [
+                event for event in snapshot.events
+                if "epoch" in event and "loss" in event
+            ]
+            if records:
+                latest = records[-1]
+                epoch = int(latest.get("epoch", 0) or 0)
+                self.refs["train_progress"].value = min(
+                    1.0, epoch / max(1, self.expected_epochs)
+                )
+                self.refs["train_progress"].update()
+                self.refs["train_progress_text"].set_text(
+                    f"Época {epoch}/{self.expected_epochs} · "
+                    f"loss {_float(latest.get('loss')):.4f} · "
+                    f"val mIoU {_percent(latest.get('val_miou', 0))}"
+                )
+                self.refs["train_epoch_kpi"].set_text(str(epoch))
+                self.refs["train_miou_kpi"].set_text(
+                    _percent(latest.get("val_miou", 0))
+                )
 
     def _set_action_buttons(self, enabled: bool) -> None:
         for key in ("train_start", "infer_start", "benchmark_start"):

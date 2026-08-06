@@ -103,24 +103,12 @@ def class_index_to_name(
         return "unknown"
     return str(value)
 
-# Aliases de nomenclatura usados em notebooks e na documentação.
-CLASS_NAMES = WAREHOUSE_CLASS_NAMES
-CLASS_TO_INDEX = WAREHOUSE_CLASS_TO_INDEX
-INDEX_TO_CLASS = WAREHOUSE_INDEX_TO_CLASS
-class_to_index = class_name_to_index
-index_to_class = class_index_to_name
-
 
 __all__ = [
-    "CLASS_NAMES",
-    "CLASS_TO_INDEX",
-    "INDEX_TO_CLASS",
     "WAREHOUSE_CLASS_NAMES",
     "WAREHOUSE_CLASS_TO_INDEX",
     "WAREHOUSE_INDEX_TO_CLASS",
     "class_name_to_index",
     "class_index_to_name",
-    "class_to_index",
-    "index_to_class",
     "normalize_class_name",
 ]

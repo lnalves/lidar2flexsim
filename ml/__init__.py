@@ -5,16 +5,11 @@ carrega torch quando solicitado com ``return_tensors=True``.
 """
 
 from .classes import (
-    CLASS_NAMES,
-    CLASS_TO_INDEX,
-    INDEX_TO_CLASS,
     WAREHOUSE_CLASS_NAMES,
     WAREHOUSE_CLASS_TO_INDEX,
     WAREHOUSE_INDEX_TO_CLASS,
     class_index_to_name,
     class_name_to_index,
-    class_to_index,
-    index_to_class,
     normalize_class_name,
 )
 from .data import (
@@ -25,32 +20,23 @@ from .data import (
     WarehousePointDataset,
     WarehouseScan,
     assign_point_labels,
-    carregar_bin,
-    label_points,
-    ler_labels,
     load_bin,
-    load_labels,
     load_scan,
-    load_warehouse_bin,
     prepare_point_sample,
-    prepare_sample,
     read_label_file,
-    rotular_pontos,
-    sample_fixed_points,
     select_scan_subset,
     temporal_split,
     temporal_three_way_split,
 )
 from .geometry import (
     OrientedBox,
-    box_corners,
     points_in_oriented_box,
     points_inside_oriented_box,
     pontos_na_caixa_orientada,
 )
 from .config import PointNet2Config, TrainingConfig, load_config, save_config
 from .preprocessing import PointPreprocessingConfig, preprocess_points
-from .dependencies import MissingOptionalDependency, pyg_available, torch_available
+from .dependencies import MissingOptionalDependency, torch_available
 from .checkpoints import load_checkpoint, save_checkpoint
 from .inference import inferir_scan, predict_points
 from .models.pointnet2_seg import PointNet2Segmentation
@@ -65,11 +51,8 @@ from .benchmark import (
 from .calibration import PredictionCalibrationConfig, calibrate_predictions
 
 __all__ = [
-    "CLASS_NAMES",
-    "CLASS_TO_INDEX",
     "DEFAULT_BIN_FEATURES",
     "DEFAULT_NUM_POINTS",
-    "INDEX_TO_CLASS",
     "OrientedBox",
     "PointSample",
     "WAREHOUSE_CLASS_NAMES",
@@ -79,30 +62,19 @@ __all__ = [
     "WarehousePointDataset",
     "WarehouseScan",
     "assign_point_labels",
-    "box_corners",
     "build_benchmark_manifest",
     "calibrate_predictions",
-    "carregar_bin",
     "class_index_to_name",
     "class_name_to_index",
-    "class_to_index",
-    "index_to_class",
-    "label_points",
-    "ler_labels",
     "load_bin",
-    "load_labels",
     "load_scan",
-    "load_warehouse_bin",
     "normalize_class_name",
     "pontos_na_caixa_orientada",
     "points_in_oriented_box",
     "points_inside_oriented_box",
     "prepare_point_sample",
     "preprocess_points",
-    "prepare_sample",
     "read_label_file",
-    "rotular_pontos",
-    "sample_fixed_points",
     "select_scan_subset",
     "temporal_split",
     "temporal_three_way_split",
@@ -118,7 +90,6 @@ __all__ = [
     "load_config",
     "manifest_from_run",
     "predict_points",
-    "pyg_available",
     "save_checkpoint",
     "save_benchmark_manifest",
     "save_config",
