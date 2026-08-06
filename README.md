@@ -20,7 +20,7 @@ checkpoints seguros, retomada de treinamento e benchmark reproduzível.
 
 ```text
 ml/
-├── cli.py                    # comandos train, infer e benchmark
+├── cli.py                    # comandos train, infer, benchmark e stream
 ├── gui.py                    # validação e execução usada pela interface
 ├── models/pointnet2_seg.py   # arquitetura PointNet++
 ├── data/pointnet.py          # leitura, labels e dataset PyTorch
@@ -29,6 +29,14 @@ ml/
 ├── inference.py              # segmentação e caixas 3D
 ├── evaluation.py             # IoU 3D e métricas de detecção
 ├── benchmark.py              # splits e relatórios reproduzíveis
+├── flexsim/                  # ponte em tempo real com o FlexSim
+│   ├── sources.py            # fontes de quadros: replay e ao vivo
+│   ├── pipeline.py           # laço persistente fonte → modelo → cena
+│   ├── tracking.py           # IDs persistentes entre quadros
+│   ├── transform.py          # sensor → referencial do modelo FlexSim
+│   ├── scene.py              # contrato de cena (JSON e CSV)
+│   ├── export.py             # arquivos atômicos, FlexScript e STL
+│   └── server.py             # servidor HTTP da cena atual
 └── configs/pointnet2_seg.yaml
 ```
 
@@ -206,9 +214,9 @@ O benchmark grava:
   dados do checkpoint.
 
 O formato de predição (`classe`, `class_id`, `score`, `centro`, `dimensoes`,
-`rotacao`, `num_pontos`) é o contrato do exportador para o FlexSim e não deve
+`rotacao`, `num_pontos`) é o contrato de entrada da ponte FlexSim e não deve
 mudar sem necessidade. O bloco de teste reservado pelo treino é o conjunto
-natural para validar esse exportador quando ele existir.
+natural para validar a ponte.
 
 Para avaliar um JSON de predições separadamente:
 
@@ -220,6 +228,119 @@ python -m ml.evaluation \
   --class-aware \
   --saida benchmark/metricas_warehouse.json
 ```
+
+## Integração com o FlexSim em tempo real
+
+O comando `stream` mantém um processo vivo: carrega o checkpoint uma única
+vez, consome quadros de uma fonte, segmenta, rastreia os objetos entre
+quadros e publica a cena resultante.
+
+```bash
+python -m ml.cli stream \
+  --dataset dados/warehouse \
+  --checkpoint runs/exemplo/checkpoints/best.pt \
+  --output-dir flexsim \
+  --serve \
+  --rate 10
+```
+
+Enquanto não há sensor, a fonte é um replay do dataset no ritmo de um LiDAR
+real (`--rate`, em Hz). O laço emite um JSON por quadro, com o orçamento de
+tempo medido, e um resumo ao final:
+
+```json
+{"event": "scene", "frame": 19, "objects": 22, "detections": 11,
+ "inference_ms": 14.44, "total_ms": 17.21, "fps": 58.1}
+```
+
+### Como o FlexSim recebe a cena
+
+Os dois caminhos publicam exatamente o mesmo conteúdo e podem coexistir:
+
+- **Arquivo** (`--output-dir`): grava `scene.json` e `scene.csv` por rename
+  atômico, então o FlexSim nunca lê um arquivo pela metade. Funciona sem
+  rede, inclusive por pasta compartilhada.
+- **HTTP** (`--serve`): serve `GET /scene.json`, `GET /scene.csv` e
+  `GET /health` em `127.0.0.1:8765`. Use `--serve-host 0.0.0.0` apenas se o
+  FlexSim rodar em outra máquina — o padrão não expõe nada à rede.
+
+O `--output-dir` também recebe `lidar_bridge.txt`, o FlexScript a colar em
+**Tools > User Commands**. Ele é idempotente: cria o que falta, atualiza pelo
+nome o que já existe e destrói só o que a cena marcou como `removed`. É essa
+diferença que preserva estatísticas e tarefas em andamento na simulação.
+
+Instalação no modelo, uma vez:
+
+1. crie um container vazio chamado `LidarScene` (ajustável com `--container`);
+2. cole `lidar_bridge.txt` como User Command `atualizarDoLidar`;
+3. chame `atualizarDoLidar()` num Process Flow em laço, a cada 0,1 s.
+
+O script tem duas linhas marcadas com `AJUSTE`, isoladas no topo: a criação
+de objeto e a divisão de campos, que variam entre versões do FlexSim.
+
+O CSV existe porque o FlexScript lê arquivos linha a linha em qualquer
+versão, mas não tem parser de JSON garantido. A primeira linha é
+`formato,frame,timestamp,linhas`, a segunda são os nomes das colunas.
+
+### Calibração e mapeamento
+
+O detector trabalha no referencial do sensor, em metros e radianos. O FlexSim
+usa graus e a origem do próprio modelo, e ancora objetos pelo **canto** da
+bounding box — não pelo centro. A cena publica `center` e `location` (canto)
+lado a lado, e `anchor: "corner"` declara qual deles o FlexScript usa.
+
+```bash
+python -m ml.cli stream ... \
+  --sensor-translation 12.5,4.0,0.0 \
+  --sensor-yaw 90
+```
+
+O mapa de classe para tipo FlexSim tem um padrão (`Box` → `VisualTool`, as
+quatro classes móveis → `Transporter`) e é substituível por JSON:
+
+```json
+{
+  "flexsim_objects": {
+    "Box": "Rack",
+    "ForkLift": "Transporter"
+  }
+}
+```
+
+```bash
+python -m ml.cli stream ... --flexsim-map mapa.json
+```
+
+### Tracking
+
+Sem identidade temporal, cada atualização seria "apague tudo e recrie". O
+tracker associa detecções a faixas persistentes por proximidade no plano
+`xy`, suaviza a geometria e estima velocidade em m/s. Uma faixa só é
+publicada depois de `--track-min-hits` observações e sobrevive
+`--track-max-age` quadros sem ser vista, o que evita que uma oclusão breve
+destrua um objeto no FlexSim.
+
+Os padrões (gate de 1,5 m, `max_age=5`, `min_hits=2`) foram escolhidos para
+10 Hz em armazém. Com um detector instável eles produzem mais objetos
+publicados do que detecções por quadro, porque as faixas seguem em
+`coasting`; vale reapertá-los junto com a melhoria do checkpoint.
+
+### Quando o sensor chegar
+
+Toda a ponte é escrita contra `PointSource`, que entrega quadros `[N, 4]`.
+O driver do sensor entra como uma implementação nova, sem tocar em tracking,
+exportador ou servidor:
+
+```python
+from ml.flexsim import LivePointSource
+
+source = LivePointSource()
+# no receptor do sensor, a cada rotação completa:
+source.push(pontos_xyzi)
+```
+
+`LivePointSource` guarda apenas o quadro mais recente e conta os descartes:
+acumular fila só aumentaria a defasagem entre o armazém real e a simulação.
 
 ## Testes
 

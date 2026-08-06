@@ -192,6 +192,72 @@ def build_infer_command(
     return command
 
 
+def build_stream_command(
+    *,
+    dataset: str | Path,
+    checkpoint: str | Path,
+    device: str,
+    output_dir: str | Path | None = None,
+    rate: float = 10.0,
+    loop: bool = False,
+    max_frames: int | None = None,
+    serve: bool = False,
+    serve_host: str = "127.0.0.1",
+    serve_port: int = 8765,
+    container: str = "LidarScene",
+    score_threshold: float = 0.50,
+    cluster_eps: float = 0.35,
+    min_cluster_points: int = 5,
+    calibration: str | Path | None = None,
+    flexsim_map: str | Path | None = None,
+    python: str = sys.executable,
+) -> list[str]:
+    """Monta o comando do laço em tempo real que alimenta o FlexSim.
+
+    O processo fica vivo enquanto a fonte entregar quadros e emite um JSON
+    por quadro, exatamente o formato que :class:`ProcessRunner` já consome —
+    a interface acompanha o streaming com o mesmo mecanismo do treino.
+    """
+
+    command = [
+        python,
+        "-m",
+        "ml.cli",
+        "stream",
+        "--dataset",
+        str(dataset),
+        "--checkpoint",
+        str(checkpoint),
+        "--device",
+        str(device),
+        "--rate",
+        str(float(rate)),
+        "--score-threshold",
+        str(float(score_threshold)),
+        "--cluster-eps",
+        str(float(cluster_eps)),
+        "--min-cluster-points",
+        str(int(min_cluster_points)),
+        "--container",
+        str(container),
+    ]
+    if output_dir:
+        command.extend(["--output-dir", str(output_dir)])
+    if loop:
+        command.append("--loop")
+    if max_frames:
+        command.extend(["--max-frames", str(int(max_frames))])
+    if serve:
+        command.extend(
+            ["--serve", "--serve-host", str(serve_host), "--serve-port", str(int(serve_port))]
+        )
+    if calibration:
+        command.extend(["--calibration", str(calibration)])
+    if flexsim_map:
+        command.extend(["--flexsim-map", str(flexsim_map)])
+    return command
+
+
 def build_benchmark_command(
     *,
     dataset: str | Path,
@@ -377,6 +443,7 @@ __all__ = [
     "available_devices",
     "build_benchmark_command",
     "build_infer_command",
+    "build_stream_command",
     "build_train_command",
     "discover_checkpoints",
     "format_duration",

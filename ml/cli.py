@@ -1,13 +1,15 @@
-"""CLI para treinar, inferir e avaliar o PointNet++.
+"""CLI para treinar, inferir, avaliar e transmitir para o FlexSim.
 
 ``python -m ml.cli train --dataset dados/warehouse --output checkpoints``
 ``python -m ml.cli infer --scan dados/warehouse/bin/000000.bin --checkpoint ...``
+``python -m ml.cli stream --dataset dados/warehouse --checkpoint ... --serve``
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import signal
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -233,6 +235,121 @@ def infer_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sensor_translation(value: str | None) -> list[float] | None:
+    if not value:
+        return None
+    parts = [item.strip() for item in str(value).replace(";", ",").split(",")]
+    try:
+        numbers = [float(item) for item in parts if item]
+    except ValueError as exc:
+        raise ValueError("--sensor-translation deve ser 'x,y,z' em metros") from exc
+    if len(numbers) != 3:
+        raise ValueError("--sensor-translation deve conter exatamente três valores")
+    return numbers
+
+
+def stream_command(args: argparse.Namespace) -> int:
+    """Laço em tempo real: fonte → PointNet++ → tracking → FlexSim."""
+
+    from .flexsim.pipeline import build_pipeline
+    from .flexsim.server import SceneServer
+    from .flexsim.sources import ReplayPointSource
+
+    calibration = None
+    if args.calibration:
+        calibration = json.loads(Path(args.calibration).read_text(encoding="utf-8"))
+    source = ReplayPointSource(
+        args.dataset,
+        rate_hz=args.rate,
+        loop=args.loop,
+        max_frames=args.max_frames,
+        realtime=not args.no_realtime,
+    )
+    server = (
+        SceneServer(host=args.serve_host, port=args.serve_port).start()
+        if args.serve
+        else None
+    )
+    pipeline = build_pipeline(
+        args.checkpoint,
+        device=args.device,
+        num_points=args.num_points,
+        score_threshold=args.score_threshold,
+        cluster_eps=args.cluster_eps,
+        min_cluster_points=args.min_cluster_points,
+        calibration=calibration,
+        container=args.container,
+        tracking={
+            key: value
+            for key, value in {
+                "max_distance": args.track_max_distance,
+                "max_age": args.track_max_age,
+                "min_hits": args.track_min_hits,
+                "smoothing": args.track_smoothing,
+            }.items()
+            if value is not None
+        },
+        placement={
+            key: value
+            for key, value in {
+                "translation": _sensor_translation(args.sensor_translation),
+                "yaw_deg": args.sensor_yaw,
+                "scale": args.sensor_scale,
+            }.items()
+            if value is not None
+        },
+        object_map=args.flexsim_map,
+        output_dir=args.output_dir,
+        server=server,
+    )
+
+    def emit(record: dict[str, Any]) -> None:
+        print(json.dumps(record, ensure_ascii=False), flush=True)
+
+    # Ctrl+C encerra pelo caminho normal, publicando o resumo e fechando o
+    # servidor; matar o processo deixaria o FlexSim lendo uma cena congelada
+    # sem nenhuma indicação de que o produtor morreu.
+    def request_stop(*_: Any) -> None:
+        pipeline.stop()
+        source.close()
+
+    previous: dict[Any, Any] = {}
+    for name in ("SIGINT", "SIGTERM"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        try:
+            previous[number] = signal.signal(number, lambda *_: request_stop())
+        except ValueError:
+            # Fora da thread principal não há como instalar handlers; o laço
+            # ainda encerra por --max-frames ou pelo fim do dataset.
+            break
+    try:
+        pipeline.prepare()
+        emit(
+            {
+                "event": "ready",
+                "checkpoint": str(args.checkpoint),
+                "scans": len(source.scans),
+                "rate_hz": source.rate_hz,
+                "server_url": server.url if server else None,
+                "output_dir": str(args.output_dir) if args.output_dir else None,
+                "container": args.container,
+            }
+        )
+        summary = pipeline.run(
+            source,
+            on_frame=None if args.quiet else (lambda report: emit(report.to_event())),
+        )
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        if server is not None:
+            server.stop()
+    emit(summary)
+    return 0
+
+
 def benchmark_command(args: argparse.Namespace) -> int:
     report = run_benchmark(
         args.dataset,
@@ -282,6 +399,44 @@ def build_parser() -> argparse.ArgumentParser:
     infer.add_argument("--min-cluster-points", type=int, default=5)
     infer.add_argument("--calibration", help="JSON de filtros/NMS por classe")
     infer.set_defaults(handler=infer_command)
+    stream = commands.add_parser(
+        "stream", help="transmite detecções em tempo real para o FlexSim"
+    )
+    stream.add_argument("--dataset", required=True, help="raiz do dataset usado no replay")
+    stream.add_argument("--checkpoint", required=True)
+    stream.add_argument("--device", default="cpu")
+    stream.add_argument("--num-points", type=int)
+    stream.add_argument("--score-threshold", type=float, default=0.5)
+    stream.add_argument("--cluster-eps", type=float, default=0.35)
+    stream.add_argument("--min-cluster-points", type=int, default=5)
+    stream.add_argument("--calibration", help="JSON de filtros/NMS por classe")
+    stream.add_argument("--rate", type=float, default=10.0, help="quadros por segundo do replay")
+    stream.add_argument("--loop", action="store_true", help="reinicia ao fim do dataset")
+    stream.add_argument("--max-frames", type=int, help="encerra após N quadros")
+    stream.add_argument(
+        "--no-realtime",
+        action="store_true",
+        help="processa o mais rápido possível, sem esperar o intervalo do sensor",
+    )
+    stream.add_argument(
+        "--output-dir", help="pasta onde gravar scene.json, scene.csv e lidar_bridge.txt"
+    )
+    stream.add_argument("--serve", action="store_true", help="publica a cena por HTTP")
+    stream.add_argument("--serve-host", default="127.0.0.1")
+    stream.add_argument("--serve-port", type=int, default=8765)
+    stream.add_argument(
+        "--container", default="LidarScene", help="nome do container no modelo FlexSim"
+    )
+    stream.add_argument("--flexsim-map", help="JSON com 'flexsim_objects' por classe")
+    stream.add_argument("--sensor-translation", help="origem do sensor no modelo, 'x,y,z'")
+    stream.add_argument("--sensor-yaw", type=float, help="rotação do sensor em graus")
+    stream.add_argument("--sensor-scale", type=float, help="metros do sensor por unidade do modelo")
+    stream.add_argument("--track-max-distance", type=float)
+    stream.add_argument("--track-max-age", type=int)
+    stream.add_argument("--track-min-hits", type=int)
+    stream.add_argument("--track-smoothing", type=float)
+    stream.add_argument("--quiet", action="store_true", help="omite o evento por quadro")
+    stream.set_defaults(handler=stream_command)
     benchmark = commands.add_parser("benchmark", help="executa benchmark reproduzível")
     benchmark.add_argument("--dataset", required=True)
     benchmark.add_argument("--checkpoint")

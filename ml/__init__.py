@@ -2,6 +2,9 @@
 
 As importações deste pacote são leves e não exigem PyTorch. O dataset só
 carrega torch quando solicitado com ``return_tensors=True``.
+
+O subpacote :mod:`ml.flexsim` fica de fora deste ``__init__`` de propósito:
+importe-o explicitamente quando precisar da ponte em tempo real.
 """
 
 from .classes import (
@@ -38,7 +41,7 @@ from .config import PointNet2Config, TrainingConfig, load_config, save_config
 from .preprocessing import PointPreprocessingConfig, preprocess_points
 from .dependencies import MissingOptionalDependency, torch_available
 from .checkpoints import load_checkpoint, save_checkpoint
-from .inference import inferir_scan, predict_points
+from .inference import inferir_scan, load_segmentation_model, predict_points
 from .models.pointnet2_seg import PointNet2Segmentation
 from .training import smoke_train, train_model
 from .benchmark import (
@@ -88,6 +91,7 @@ __all__ = [
     "load_checkpoint",
     "load_benchmark_manifest",
     "load_config",
+    "load_segmentation_model",
     "manifest_from_run",
     "predict_points",
     "save_checkpoint",

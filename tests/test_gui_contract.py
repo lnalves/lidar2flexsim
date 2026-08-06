@@ -12,6 +12,7 @@ from ml.gui import (
     ProcessRunner,
     build_benchmark_command,
     build_infer_command,
+    build_stream_command,
     build_train_command,
     discover_checkpoints,
     format_duration,
@@ -115,6 +116,45 @@ def test_command_builders_match_the_public_cli() -> None:
     assert infer[infer.index("--score-threshold") + 1] == "0.5"
     assert benchmark[:4] == ["python", "-m", "ml.cli", "benchmark"]
     assert benchmark[benchmark.index("--from-run") + 1] == "runs/test"
+
+
+def test_stream_command_matches_the_public_cli() -> None:
+    from ml.cli import build_parser
+
+    command = build_stream_command(
+        dataset="dados/warehouse",
+        checkpoint="runs/test/checkpoints/best.pt",
+        device="cpu",
+        output_dir="flexsim",
+        rate=10.0,
+        loop=True,
+        serve=True,
+        serve_port=8765,
+        container="LidarScene",
+        python="python",
+    )
+
+    assert command[:4] == ["python", "-m", "ml.cli", "stream"]
+    assert command[command.index("--rate") + 1] == "10.0"
+    assert command[command.index("--output-dir") + 1] == "flexsim"
+    assert command[command.index("--serve-port") + 1] == "8765"
+    assert "--loop" in command
+    # O parser real precisa aceitar exatamente o que a interface monta.
+    build_parser().parse_args(command[3:])
+
+
+def test_stream_command_omite_flags_opcionais_nao_solicitadas() -> None:
+    command = build_stream_command(
+        dataset="dados/warehouse",
+        checkpoint="best.pt",
+        device="cpu",
+        python="python",
+    )
+
+    assert "--serve" not in command
+    assert "--loop" not in command
+    assert "--output-dir" not in command
+    assert "--calibration" not in command
 
 
 def test_run_dir_for_checkpoint_finds_the_execution_that_produced_it(

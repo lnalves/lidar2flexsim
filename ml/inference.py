@@ -162,6 +162,29 @@ def _oriented_box(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     dimensions = np.maximum(dimensions, 0.05)
     return center.astype(np.float32), dimensions.astype(np.float32), yaw
 
+def load_segmentation_model(
+    checkpoint: str | Path,
+    *,
+    device: str = "cpu",
+) -> tuple[Any, PointNet2Config]:
+    """Instancia o segmentador de um checkpoint e devolve modelo e configuração.
+
+    O streaming em tempo real reaproveita o modelo entre quadros; carregá-lo
+    aqui, e não dentro de :func:`predict_points`, é o que permite pagar o
+    custo do checkpoint uma única vez.
+    """
+
+    torch = require_torch("carregar o segmentador PointNet++")
+    device_obj = _normalizar_device(torch, device)
+    payload = load_checkpoint(checkpoint, map_location=device_obj)
+    model_config = PointNet2Config.from_mapping(payload.get("config") or {})
+    model = PointNet2Segmentation(model_config)
+    load_checkpoint(checkpoint, model=model, map_location=device_obj)
+    model.to(device_obj)
+    model.eval()
+    return model, model_config
+
+
 def predict_points(
     scan: str | Path | np.ndarray | Sequence[Sequence[float]],
     *,
@@ -188,10 +211,7 @@ def predict_points(
     device_obj = _normalizar_device(torch, device)
     # Model configuration determines the number of points when caller omits it.
     if model is None and checkpoint is not None:
-        payload = load_checkpoint(checkpoint, map_location=device_obj)
-        model_config = PointNet2Config.from_mapping(payload.get("config") or {})
-        model = PointNet2Segmentation(model_config)
-        load_checkpoint(checkpoint, model=model, map_location=device_obj)
+        model, model_config = load_segmentation_model(checkpoint, device=device)
     elif model is not None:
         model_config = getattr(model, "config", PointNet2Config())
     else:
